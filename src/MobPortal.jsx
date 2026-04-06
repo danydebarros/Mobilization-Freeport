@@ -812,8 +812,18 @@ export default function App(){
           photoID:row['Photo ID']==='Yes',training:row['Training Docs']==='Yes',
           hse:row['HSE Form']==='Yes',compDoc:row['Competency Doc']==='Yes'||row['Competency Docs']==='Yes',mobStatus:row['Mobilization Status']||'',accepted:row['Mobilization Status']==='Accepted',
         }));
-        setAllP(mapped);
-        try{localStorage.setItem('mobPortalData',JSON.stringify(mapped));}catch{}
+        // Preserve locally-accepted status if sheet hasn't caught up yet
+        setAllP(prev=>{
+          const acceptedKeys={};
+          prev.forEach(p=>{if(p.mobStatus==='Accepted'||p.accepted){acceptedKeys[(p.fn||'').trim()+'|'+(p.ln||'').trim()+'|'+(p.con||p.contractor||'').trim()]=true;}});
+          const merged=mapped.map(p=>{
+            const key=(p.fn||'').trim()+'|'+(p.ln||'').trim()+'|'+(p.con||p.contractor||'').trim();
+            if(acceptedKeys[key]&&!p.accepted){return{...p,mobStatus:'Accepted',accepted:true};}
+            return p;
+          });
+          try{localStorage.setItem('mobPortalData',JSON.stringify(merged));}catch{}
+          return merged;
+        });
       }
     }).catch(()=>{});
   },[]);

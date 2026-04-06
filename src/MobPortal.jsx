@@ -667,7 +667,7 @@ const Dashboard=({allP,tarEndStr,setTarEndStr,onApproveTrade,onAccept,onDelete,t
         </div>}
       </div>
       <div style={{display:'flex',gap:4,marginBottom:18,borderBottom:`1px solid ${C.bdr}`}}>
-        {[['overview','Overview'],['personnel','All Personnel'],['settings','Project Settings']].map(([t,label])=>(
+        {[['overview','Overview'],['headcount','Site Headcount'],['personnel','All Personnel'],['settings','Project Settings']].map(([t,label])=>(
           <button key={t} onClick={()=>setTab(t)} style={{padding:'8px 20px',background:tab===t?'#1A2B4A':'transparent',border:`1px solid ${tab===t?'#1A2B4A':C.bdr}`,borderRadius:20,color:tab===t?'#fff':C.mute,cursor:'pointer',fontWeight:600,fontSize:13,transition:'all .2s',marginRight:6}}>{label}</button>
         ))}
       </div>
@@ -746,6 +746,175 @@ const Dashboard=({allP,tarEndStr,setTarEndStr,onApproveTrade,onAccept,onDelete,t
           </div>
         </>
       )}
+      {tab==='headcount'&&(()=>{
+        // Build daily headcount data by contractor
+        const people=enriched.filter(p=>p.start&&p.end);
+        if(!people.length) return <Card><div style={{textAlign:'center',padding:40,color:C.mute}}>No personnel with start/end dates found.</div></Card>;
+
+        // Find date range
+        const allDates=people.flatMap(p=>[p.start,p.end]).filter(Boolean).sort();
+        const minDate=allDates[0];
+        const maxDate=allDates[allDates.length-1];
+
+        // Build day list
+        const days=[];
+        const d=new Date(minDate+'T12:00:00');
+        const end=new Date(maxDate+'T12:00:00');
+        while(d<=end){const dk=d.toISOString().split('T')[0];days.push(dk);d.setDate(d.getDate()+1);}
+
+        // Get unique contractors sorted by total headcount
+        const conTotals={};
+        people.forEach(p=>{const c=p.con||p.contractor||'Unknown';conTotals[c]=(conTotals[c]||0)+1;});
+        const cons=Object.entries(conTotals).sort((a,b)=>b[1]-a[1]).map(e=>e[0]);
+
+        // Assign colors to contractors
+        const palette=['#378ADD','#1D9E75','#E24B4A','#EF9F27','#854F0B','#7C3AED','#DB2777','#0891B2','#65A30D','#DC2626','#2563EB','#D97706','#059669','#7C2D12','#4338CA','#BE185D','#0D9488','#CA8A04','#9333EA','#E11D48','#1E3A5F','#F59E0B','#10B981','#6366F1'];
+        const conColors={};
+        cons.forEach((c,i)=>{conColors[c]=palette[i%palette.length];});
+
+        // Compute daily counts per contractor
+        const dailyData=days.map(dk=>{
+          const counts={};
+          cons.forEach(c=>{counts[c]=0;});
+          people.forEach(p=>{
+            if(p.start<=dk&&p.end>=dk){
+              const c=p.con||p.contractor||'Unknown';
+              counts[c]=(counts[c]||0)+1;
+            }
+          });
+          return{date:dk,counts};
+        });
+
+        // Find peak
+        const totals=dailyData.map(d=>{let t=0;cons.forEach(c=>{t+=d.counts[c]||0;});return t;});
+        const peakIdx=totals.indexOf(Math.max(...totals));
+        const peakDate=days[peakIdx];
+        const peakTotal=totals[peakIdx];
+        const avgTotal=Math.round(totals.reduce((a,b)=>a+b,0)/totals.length);
+
+        // Canvas chart
+        const canvasRef=useRef(null);
+        const drawChart=()=>{
+          const cv=canvasRef.current;
+          if(!cv) return;
+          const ctx=cv.getContext('2d');
+          const dpr=window.devicePixelRatio||1;
+          const rect=cv.parentElement.getBoundingClientRect();
+          const W=rect.width||800;
+          const H=400;
+          cv.style.width=W+'px';
+          cv.style.height=H+'px';
+          cv.width=Math.round(W*dpr);
+          cv.height=Math.round(H*dpr);
+          ctx.setTransform(dpr,0,0,dpr,0,0);
+          ctx.clearRect(0,0,W,H);
+
+          const pad={t:20,r:20,b:60,l:50};
+          const pw=W-pad.l-pad.r;
+          const ph=H-pad.t-pad.b;
+          const yMax=Math.max(...totals)*1.1||10;
+          const barW=Math.max(1,pw/days.length*0.85);
+
+          // Background
+          ctx.fillStyle='#f9fafb';ctx.fillRect(0,0,W,H);
+
+          // Grid
+          for(let g=0;g<=5;g++){
+            const gy=pad.t+ph*(1-g/5);
+            ctx.strokeStyle='rgba(0,0,0,.06)';ctx.lineWidth=1;
+            ctx.beginPath();ctx.moveTo(pad.l,gy);ctx.lineTo(pad.l+pw,gy);ctx.stroke();
+            ctx.fillStyle='#888';ctx.font='11px -apple-system,sans-serif';ctx.textAlign='right';
+            ctx.fillText(Math.round(yMax*g/5),pad.l-6,gy+4);
+          }
+
+          // Stacked bars
+          dailyData.forEach((dd,i)=>{
+            const x=pad.l+(i+0.5)/days.length*pw-barW/2;
+            let y0=pad.t+ph;
+            cons.forEach(c=>{
+              const v=dd.counts[c]||0;
+              if(v<=0) return;
+              const bh=v/yMax*ph;
+              ctx.fillStyle=conColors[c];
+              ctx.fillRect(x,y0-bh,barW,bh);
+              y0-=bh;
+            });
+          });
+
+          // X labels
+          const skip=Math.max(1,Math.ceil(days.length/20));
+          ctx.fillStyle='#888';ctx.font='10px -apple-system,sans-serif';ctx.textAlign='center';
+          for(let i=0;i<days.length;i+=skip){
+            const x=pad.l+(i+0.5)/days.length*pw;
+            const lbl=days[i].slice(8)+'/'+days[i].slice(5,7);
+            ctx.save();ctx.translate(x,pad.t+ph+10);ctx.rotate(Math.PI/4);ctx.fillText(lbl,0,0);ctx.restore();
+          }
+
+          // Today line
+          const today=new Date().toISOString().split('T')[0];
+          const ti=days.indexOf(today);
+          if(ti>=0){
+            const tx=pad.l+(ti+0.5)/days.length*pw;
+            ctx.strokeStyle='#E24B4A';ctx.lineWidth=1.5;ctx.setLineDash([4,3]);
+            ctx.beginPath();ctx.moveTo(tx,pad.t);ctx.lineTo(tx,pad.t+ph);ctx.stroke();
+            ctx.setLineDash([]);ctx.fillStyle='#E24B4A';ctx.font='bold 10px -apple-system,sans-serif';
+            ctx.textAlign='center';ctx.fillText('Today',tx,pad.t-5);
+          }
+        };
+
+        setTimeout(drawChart,50);
+
+        return (<div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:10,marginBottom:18}}>
+            <Card style={{padding:'12px 16px'}}><div style={{fontSize:11,color:C.mute,textTransform:'uppercase',letterSpacing:'0.04em',marginBottom:4}}>Total Personnel</div><div style={{fontSize:24,fontWeight:800,color:C.text}}>{people.length}</div></Card>
+            <Card style={{padding:'12px 16px'}}><div style={{fontSize:11,color:C.mute,textTransform:'uppercase',letterSpacing:'0.04em',marginBottom:4}}>Contractors</div><div style={{fontSize:24,fontWeight:800,color:C.text}}>{cons.length}</div></Card>
+            <Card style={{padding:'12px 16px'}}><div style={{fontSize:11,color:C.mute,textTransform:'uppercase',letterSpacing:'0.04em',marginBottom:4}}>Peak Day</div><div style={{fontSize:24,fontWeight:800,color:'#E24B4A'}}>{peakTotal}</div><div style={{fontSize:10,color:C.mute}}>{peakDate}</div></Card>
+            <Card style={{padding:'12px 16px'}}><div style={{fontSize:11,color:C.mute,textTransform:'uppercase',letterSpacing:'0.04em',marginBottom:4}}>Avg Daily</div><div style={{fontSize:24,fontWeight:800,color:C.blue}}>{avgTotal}</div></Card>
+          </div>
+          <Card style={{padding:18}}>
+            <div style={{fontSize:15,fontWeight:700,color:C.text,marginBottom:2}}>Site headcount — people per day by contractor</div>
+            <div style={{fontSize:12,color:C.mute,marginBottom:12}}>Based on start/end dates of all personnel records</div>
+            <div style={{display:'flex',flexWrap:'wrap',gap:'8px 16px',marginBottom:14}}>
+              {cons.map(c=><div key={c} style={{display:'flex',alignItems:'center',gap:5,fontSize:11,color:C.dim}}>
+                <div style={{width:12,height:12,borderRadius:3,background:conColors[c]}}/>
+                {c}
+              </div>)}
+            </div>
+            <div style={{position:'relative',width:'100%',height:400}}>
+              <canvas ref={canvasRef}/>
+            </div>
+          </Card>
+          <Card style={{marginTop:14,padding:0,overflow:'hidden'}}>
+            <div style={{padding:'14px 18px',borderBottom:`1px solid ${C.bdr}`}}>
+              <div style={{fontSize:14,fontWeight:700,color:C.text}}>Contractor breakdown</div>
+            </div>
+            <div style={{overflowX:'auto'}}>
+              <table style={{width:'100%',borderCollapse:'collapse',minWidth:500}}>
+                <thead><tr style={{background:'#f3f5f8'}}>
+                  <th style={{textAlign:'left',padding:'9px 14px',fontSize:11,fontWeight:600,color:'#5a6577',textTransform:'uppercase',letterSpacing:'0.03em'}}>Contractor</th>
+                  <th style={{textAlign:'right',padding:'9px 14px',fontSize:11,fontWeight:600,color:'#5a6577',textTransform:'uppercase'}}>People</th>
+                  <th style={{textAlign:'right',padding:'9px 14px',fontSize:11,fontWeight:600,color:'#5a6577',textTransform:'uppercase'}}>Peak</th>
+                  <th style={{textAlign:'left',padding:'9px 14px',fontSize:11,fontWeight:600,color:'#5a6577',textTransform:'uppercase'}}>First On</th>
+                  <th style={{textAlign:'left',padding:'9px 14px',fontSize:11,fontWeight:600,color:'#5a6577',textTransform:'uppercase'}}>Last Off</th>
+                </tr></thead>
+                <tbody>{cons.map(c=>{
+                  const cp=people.filter(p=>(p.con||p.contractor||'Unknown')===c);
+                  const starts=cp.map(p=>p.start).sort();
+                  const ends=cp.map(p=>p.end).sort();
+                  const conPeak=Math.max(...dailyData.map(dd=>dd.counts[c]||0));
+                  return <tr key={c} style={{borderBottom:`1px solid ${C.bdr}`}}>
+                    <td style={{padding:'9px 14px',fontSize:13,fontWeight:600,color:C.text}}><span style={{display:'inline-block',width:10,height:10,borderRadius:3,background:conColors[c],marginRight:8,verticalAlign:'middle'}}></span>{c}</td>
+                    <td style={{padding:'9px 14px',fontSize:13,textAlign:'right'}}>{cp.length}</td>
+                    <td style={{padding:'9px 14px',fontSize:13,textAlign:'right',fontWeight:600,color:'#E24B4A'}}>{conPeak}</td>
+                    <td style={{padding:'9px 14px',fontSize:12,color:C.dim}}>{starts[0]||'—'}</td>
+                    <td style={{padding:'9px 14px',fontSize:12,color:C.dim}}>{ends[ends.length-1]||'—'}</td>
+                  </tr>;
+                })}</tbody>
+              </table>
+            </div>
+          </Card>
+        </div>);
+      })()}
       {tab==='settings'&&(
         <Card>
           <h3 style={{margin:'0 0 18px',fontSize:17,fontWeight:800,color:C.text}}>Project Settings</h3>

@@ -806,6 +806,7 @@ export default function App(){
           trade:row['Trade']||'',tradeOther:row['Trade (Custom)']||'',badge:row['Badge Number'],shift:row['Shift'],
           start:cleanDate(row['Start Date']),end:cleanDate(row['Finish Date']),
           bp:cleanDate(row['12 Basic Plus Expiry']),swp:cleanDate(row['19A AIL SWP Expiry']),nasu:cleanDate(row['19A AIL NASU Expiry']),
+          tradeApproval:row['Trade Approval']||'',
           bpDoc:row['Training Docs']==='Yes',swpDoc:row['Training Docs']==='Yes',nasuDoc:row['Training Docs']==='Yes',
           ct:row['Competency Type']||'',comp:row['Competency Detail']||'',
           photoID:row['Photo ID']==='Yes',training:row['Training Docs']==='Yes',
@@ -816,6 +817,12 @@ export default function App(){
       }
     }).catch(()=>{});
   },[]);
+
+  // Auto-refresh data every 60 seconds so approvals from other users sync
+  useEffect(()=>{
+    const interval=setInterval(()=>{fetchData();},60000);
+    return()=>clearInterval(interval);
+  },[fetchData]);
 
   // Submit to Google Sheet
   const uploadFile=async(fileInfo,con,fn,ln)=>{

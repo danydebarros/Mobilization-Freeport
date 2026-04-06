@@ -757,7 +757,11 @@ const Dashboard=({allP,tarEndStr,setTarEndStr,onApproveTrade,onAccept,onDelete,t
                       <td style={{padding:'10px 12px',fontSize:10,color:C.dim,whiteSpace:'nowrap'}}>{fmtDate(p.nasu)}</td>
                       <td style={{padding:'10px 12px',fontSize:11}}><span style={{color:allDocs?C.ok:C.err}}>{allDocs?'✓':'⚠ Missing'}</span></td>
                       <td style={{padding:'10px 12px'}}><Badge status={p.status}/></td>
-                    <td style={{padding:'10px 12px'}}>{(p.trade==='Other — Pending Approval'||p.trade===''&&p.tradeOther)?<span style={{fontSize:11,color:C.orange,fontWeight:600,cursor:'pointer'}}>Approve Trade</span>:'—'}</td>
+                    <td style={{padding:'10px 12px',whiteSpace:'nowrap'}}>
+                      {needsTradeApproval(p)&&<span style={{fontSize:11,color:'#D97706',fontWeight:600}}>Approve Trade</span>}
+                      {!needsTradeApproval(p)&&p.status==='Pending Acceptance'&&<button onClick={()=>onAccept(p)} style={{padding:'3px 10px',fontSize:11,borderRadius:4,border:'1px solid #059669',background:'#ECFDF5',color:'#059669',cursor:'pointer',fontWeight:600}}>Accept</button>}
+                      {!needsTradeApproval(p)&&p.status==='Accepted'&&<span style={{fontSize:11,color:C.ok}}>Accepted</span>}
+                    </td>
                     <td style={{padding:'10px 12px'}}><button onClick={()=>onDelete(p)} style={{padding:'3px 8px',fontSize:10,borderRadius:4,border:'1px solid #EF4444',background:'transparent',color:'#EF4444',cursor:'pointer'}}>Delete</button></td>
                     </tr>);
                   })}

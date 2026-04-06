@@ -1,45 +1,81 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import * as XLSX from 'xlsx';
 
 // ─── GOOGLE SHEET API ────────────────────────────────────────────────────────
 // After deploying the Apps Script as a web app, paste the URL here:
-const SHEET_API = 'https://script.google.com/macros/s/AKfycbzEljddfR4UyoGuBEsxuFaMvIokM33I4rSmmdpZX6DDP5lVtUvq1Jq-0JfoDnw_rT6q/exec';
+const SHEET_API = 'https://script.google.com/macros/s/AKfycbxE-6_fDLV008aSDxbi3OLqS5sErvopiE0HurCiaSWwijKDcHQ9QplCmGZHrj4WGgss/exec';
+const UPLOAD_API = 'https://script.google.com/macros/s/AKfycbzKhwhgh2J1Sn_QaIRR31F9qik10juU6zxPghgYlIiIxMoqR2HjmkidQulIjRNhWJwD/exec';
 
+
+// Normalize dates from various formats to YYYY-MM-DD for input[type=date]
+const cleanDate=(d)=>{
+  if(!d)return'';
+  const s=String(d).trim();
+  // Already YYYY-MM-DD
+  if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;
+  // ISO timestamp
+  if(s.includes('T')&&s.includes('-')){try{const dt=new Date(s);if(!isNaN(dt.getTime())){const y=dt.getFullYear();if(y>2000&&y<2100)return dt.toISOString().split('T')[0];}}catch{}}
+  // US format: M/D/YY or M/D/YYYY
+  const usMatch=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if(usMatch){let y=parseInt(usMatch[3]);if(y<100)y+=2000;const m=usMatch[1].padStart(2,'0');const dd=usMatch[2].padStart(2,'0');return y+'-'+m+'-'+dd;}
+  // DD-Mon-YY format: 30-Jun-26
+  const monMatch=s.match(/^(\d{1,2})-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-(\d{2,4})$/i);
+  if(monMatch){const months={jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12'};let y=parseInt(monMatch[3]);if(y<100)y+=2000;const m=months[monMatch[2].toLowerCase()];const dd=monMatch[1].padStart(2,'0');return y+'-'+m+'-'+dd;}
+  // Try native parse as last resort
+  try{const dt=new Date(s);if(!isNaN(dt.getTime())){const y=dt.getFullYear();if(y>2000&&y<2100)return dt.toISOString().split('T')[0];}}catch{}
+  // Excel serial number (days since 1899-12-30)
+  const num=Number(s);
+  if(!isNaN(num)&&num>40000&&num<60000){const dt=new Date((num-25569)*86400000);if(!isNaN(dt.getTime()))return dt.toISOString().split('T')[0];}
+  return'';
+};
 
 const CONTRACTORS = ['Ardent','Axis(FOX)','ChillCO','Claymar','Control Worx','Cooling Tower Depot','Copper Canyon','Cryostar','Custofab','Dashiell','FTS','Industrial Valve','Insight','ISS','Petrin','PK Safety','PMI','Prommac','Spartan Speciality','Sterling','Structural','Sulzer','Titan'];
-const TRADES = ['Apprentice','Asset Manager','Boilermaker','Civil Tech','Class A Instrument Tech','Cleanup Laborer','Combo Welders','Crane Operator','Eddy Current Technician','Equipment Operator','Fire Watcher','Foreman','Gate Keeper','Ground Tech / Helper','High-Pressure Wash Tech','Hydroblast Crew','Instrument Tech','Insulator','ISS/CPL Onsite Support','ISS/PNP Mechanical Crew','Junior Instrument Tech','Lead Hand','Lead Testing Technician','Leadman','Material Technician (7-12s)','Millwright Journeyman','NDE Technician','Paint Crew','Pipefitter','Pipefitter Foreman','Project Manager','QA/QC','Rescue Supervisor','Rescue Technician','Rigger','Safety','Safety Technician','Safety Watch','Scaffold Builders','Soft-Wash Tech','Superintendent','Supervisor','Technician','Vac Truck Crew','Valve Technician','Welder','Working Foreman','Other'];
+const DEFAULT_TRADES = ['Apprentice','Asset Manager','Boilermaker','Civil Tech','Combo Welder','Crane Operator','Eddy Current Technician','Equipment Operator','Fire Watcher','Foreman','Gate Keeper','High-Pressure Wash Tech','Insulator','Instrument Tech','Junior Instrument Tech','Laborer','Lead Hand','Lead Testing Technician','Material Technician','Millwright Journeyman','NDE Technician','Painter','Pipefitter','Pipefitter Foreman','Project Manager','QA/QC','Rescue Supervisor','Rescue Technician','Rigger','Safety Officer','Safety Technician','Safety Watch','Scaffold Builder','Superintendent','Supervisor','Technician','Vac Truck Crew','Valve Technician','Welder','Other — Pending Approval'];
 const CODES = {'Ardent':'ARD26','Axis(FOX)':'AXF26','ChillCO':'CHI26','Claymar':'CLY26','Control Worx':'CTW26','Cooling Tower Depot':'CTD26','Copper Canyon':'COP26','Cryostar':'CRY26','Custofab':'CUS26','Dashiell':'DAS26','FTS':'FTS26','Industrial Valve':'IND26','Insight':'INS26','ISS':'ISS26','Petrin':'PET26','PK Safety':'PKS26','PMI':'PMI26','Prommac':'PRM26','Spartan Speciality':'SPA26','Sterling':'STR26','Structural':'STU26','Sulzer':'SUL26','Titan':'TIT26'};
 
 const DEMO = [];
 
 const TODAY = new Date('2026-04-02');
+const DEFAULT_TAR_END = '2026-06-30';
 const WARN30 = new Date(TODAY); WARN30.setDate(TODAY.getDate()+30);
 
 const personStatus=(p)=>{
-  const missingDoc=!p.photoID||!p.training||!p.hse||(p.ct==='Qualification'&&!p.compDoc);
+  const hasTrainingDocs=p.training||(p.bpDoc&&p.swpDoc&&p.nasuDoc);
+  const missingDoc=!p.photoID||!hasTrainingDocs||!p.hse||(p.ct==='Qualification'&&!p.compDoc);
   const missingDate=!p.bp||!p.swp||!p.nasu;
   if(missingDoc||missingDate) return 'Missing Docs';
-  const expired=[p.bp,p.swp,p.nasu].some(d=>d&&new Date(d)<TODAY);
+  const dates=[p.bp,p.swp,p.nasu].map(d=>{if(!d)return null;const s=String(d);if(s.includes('T'))return new Date(s);return new Date(s+'T12:00:00');});
+  const expired=dates.some(d=>d&&d<TODAY);
   if(expired) return 'Expired Training';
-  const expiring=[p.bp,p.swp,p.nasu].some(d=>{const dt=new Date(d);return dt>=TODAY&&dt<=WARN30;});
+  const expiring=dates.some(d=>d&&d>=TODAY&&d<=WARN30);
   if(expiring) return 'Expiring Soon';
-  return 'Ready';
+  if(p.mobStatus==='Accepted'||p.accepted) return 'Accepted';
+  return 'Pending Acceptance';
 };
 
 const fmtDate=(d)=>{
   if(!d) return '—';
-  try{return new Date(d+'T12:00:00').toLocaleDateString('en-US',{day:'2-digit',month:'short',year:'2-digit'});}
-  catch{return d;}
+  try{
+    const s=String(d);
+    let dt;
+    if(s.includes('T'))dt=new Date(s);
+    else dt=new Date(s+'T12:00:00');
+    if(isNaN(dt.getTime()))return s;
+    return dt.toLocaleDateString('en-US',{month:'2-digit',day:'2-digit',year:'2-digit'});
+  }catch{return String(d);}
 };
 
 const C={
-  bg:'#F5F7FA',surf:'#FFFFFF',card:'#FFFFFF',cardH:'#F0F4F8',
-  bdr:'#E2E8F0',orange:'#4BA3C7',blue:'#1A2B4A',
-  text:'#1A2B4A',dim:'#4A5568',mute:'#718096',
-  ok:'#10B981',warn:'#F59E0B',err:'#EF4444',white:'#1A2B4A',
+  bg:'#F7F8FA',surf:'#FFFFFF',card:'#FFFFFF',cardH:'#F0F7FA',
+  bdr:'#E8ECF1',orange:'#1A2B4A',blue:'#1A2B4A',
+  text:'#1A2B4A',dim:'#4A5568',mute:'#8492A6',
+  ok:'#10B981',warn:'#E6A817',err:'#C75B2B',white:'#1A2B4A',
+  accent:'#1A2B4A',warm:'#4BA3C7',
 };
 
 const SC={
-  'Ready':             {bg:'#ECFDF5',tx:'#059669',bd:'#A7F3D0'},
+  'Accepted':          {bg:'#ECFDF5',tx:'#059669',bd:'#A7F3D0'},
+  'Pending Acceptance':{bg:'#EFF6FF',tx:'#2563EB',bd:'#BFDBFE'},
   'Expiring Soon':     {bg:'#FFFBEB',tx:'#D97706',bd:'#FDE68A'},
   'Expired Training':  {bg:'#FEF2F2',tx:'#DC2626',bd:'#FECACA'},
   'Missing Docs':      {bg:'#FEF2F2',tx:'#DC2626',bd:'#FECACA'},
@@ -50,13 +86,45 @@ const Inp=({val,set,ph,type='text',style={}})=><input type={type} value={val} on
 const Sel=({val,set,opts,ph})=>(<select value={val} onChange={e=>set(e.target.value)} style={ss({color:val?C.text:C.mute})}><option value="">{ph||'— Select —'}</option>{opts.map(o=><option key={o} value={o}>{o}</option>)}</select>);
 const Fld=({label,req,children,hint})=>(<div style={{marginBottom:18}}><div style={{fontSize:11,fontWeight:700,color:C.dim,letterSpacing:'0.8px',textTransform:'uppercase',marginBottom:7}}>{label}{req&&<span style={{color:C.err,marginLeft:3}}>*</span>}</div>{children}{hint&&<div style={{fontSize:11,color:C.mute,marginTop:4}}>{hint}</div>}</div>);
 const Btn=({children,v='primary',onClick,disabled,full,sm})=>{
-  const vv={primary:{bg:C.orange,tx:'#fff',bd:'none'},secondary:{bg:C.blue,tx:'#fff',bd:'none'},ghost:{bg:'transparent',tx:C.mute,bd:`1px solid ${C.bdr}`},outline:{bg:'transparent',tx:C.orange,bd:`1px solid ${C.orange}`}};
+  const vv={primary:{bg:'#4BA3C7',tx:'#fff',bd:'none'},secondary:{bg:'#4BA3C7',tx:'#fff',bd:'none'},ghost:{bg:'transparent',tx:C.mute,bd:`1px solid ${C.bdr}`},outline:{bg:'transparent',tx:'#1A2B4A',bd:`1px solid #1A2B4A`}};
   return <button onClick={onClick} disabled={disabled} style={{padding:sm?'7px 14px':'11px 22px',borderRadius:6,fontWeight:700,fontSize:sm?12:13,cursor:disabled?'not-allowed':'pointer',border:vv[v].bd,background:vv[v].bg,color:vv[v].tx,opacity:disabled?.5:1,width:full?'100%':'auto',whiteSpace:'nowrap',letterSpacing:'0.3px'}}>{children}</button>;
 };
 const Badge=({status})=>{const sc=SC[status]||SC['Ready'];return <span style={{display:'inline-flex',alignItems:'center',gap:5,padding:'3px 9px',borderRadius:20,background:sc.bg,color:sc.tx,border:`1px solid ${sc.bd}`,fontSize:11,fontWeight:700,whiteSpace:'nowrap'}}><span style={{width:5,height:5,borderRadius:'50%',background:sc.tx,display:'inline-block'}}/>{status}</span>;};
-const UploadBox=({label,done,onToggle})=>(<div onClick={onToggle} style={{border:`2px dashed ${done?C.ok:C.bdr}`,borderRadius:8,padding:'18px 16px',textAlign:'center',cursor:'pointer',background:done?'#ECFDF5':C.surf,transition:'all .2s'}}><div style={{fontSize:20,marginBottom:5}}>{done?'✅':'📎'}</div><div style={{fontSize:13,color:done?C.ok:C.dim}}>{done?label+' — Uploaded ✓':'Click to upload '+label}</div><div style={{fontSize:11,color:C.mute,marginTop:3}}>PDF · JPG · PNG accepted</div></div>);
+const UploadBox=({label,done,onToggle,onFile})=>{
+  const fileRef=React.useRef(null);
+  const handleClick=()=>{
+    if(!done&&fileRef.current)fileRef.current.click();
+  };
+  const handleChange=(e)=>{
+    const file=e.target.files[0];
+    if(!file)return;
+    if(onFile){
+      const reader=new FileReader();
+      reader.onload=()=>{
+        const b64=reader.result.split(',')[1];
+        onFile({fileName:file.name,mimeType:file.type,fileData:b64,size:file.size});
+      };
+      reader.readAsDataURL(file);
+    }
+    onToggle(file.name);
+    e.target.value='';
+  };
+  return (<div style={{border:`1px solid ${done?C.ok:C.bdr}`,borderRadius:8,overflow:'hidden',background:done?'#ECFDF5':C.surf,transition:'all .2s'}}>
+    <div onClick={handleClick} style={{padding:'16px',display:'flex',alignItems:'center',gap:14,cursor:done?'default':'pointer'}}>
+      <div style={{width:36,height:36,borderRadius:8,background:done?'#D1FAE5':'#F0F4F8',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d={done?"M3 8l3.5 3.5L13 5":"M8 2v8M4 6l4-4 4 4M2 12h12"} stroke={done?"#059669":"#718096"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+      </div>
+      <div style={{flex:1}}>
+        <div style={{fontSize:13,fontWeight:600,color:done?C.ok:C.text}}>{done?label+' — Uploaded':'Upload '+label}</div>
+        <div style={{fontSize:11,color:C.mute,marginTop:2}}>{done?'File attached successfully':'PDF, JPG, or PNG — click to select file'}</div>
+      </div>
+      {done&&<div onClick={(e)=>{e.stopPropagation();onToggle(false);}} style={{padding:'4px 10px',borderRadius:4,background:'#FEF2F2',color:'#DC2626',fontSize:11,fontWeight:600,cursor:'pointer'}}>Remove</div>}
+    </div>
+    <input ref={fileRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" style={{display:'none'}} onChange={handleChange}/>
+  </div>);
+};
 const Card=({children,style={}})=><div style={{background:C.card,border:`1px solid ${C.bdr}`,borderRadius:14,padding:24,boxShadow:'0 1px 3px rgba(0,0,0,0.08)',...style}}>{children}</div>;
-const StatCard=({label,val,color,icon})=>(<div style={{background:C.card,border:`1px solid ${C.bdr}`,borderRadius:12,padding:'18px 20px',display:'flex',alignItems:'center',gap:14}}><div style={{width:42,height:42,borderRadius:10,background:`${color}22`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0}}>{icon}</div><div><div style={{fontSize:26,fontWeight:900,color,lineHeight:1}}>{val}</div><div style={{fontSize:11,color:C.mute,marginTop:3,textTransform:'uppercase',letterSpacing:'0.5px'}}>{label}</div></div></div>);
+const StatCard=({label,val,color})=>(<div style={{background:C.card,border:`1px solid ${C.bdr}`,borderRadius:8,padding:'16px 20px',borderLeft:`3px solid ${color||C.text}`}}><div style={{fontSize:10,color:C.mute,textTransform:'uppercase',letterSpacing:'0.8px',marginBottom:4}}>{label}</div><div style={{fontSize:28,fontWeight:800,color:color||C.text,lineHeight:1}}>{val}</div></div>);
 const Divline=({label})=>(<div style={{display:'flex',alignItems:'center',gap:10,margin:'22px 0'}}><div style={{flex:1,height:1,background:C.bdr}}/><div style={{fontSize:10,color:C.mute,letterSpacing:'1px',textTransform:'uppercase',whiteSpace:'nowrap'}}>{label}</div><div style={{flex:1,height:1,background:C.bdr}}/></div>);
 
 // ─── PROMMAC LOGO (actual brand asset) ────────────────────────────────────────
@@ -81,7 +149,7 @@ const ALLogo=({scale=1})=>{
 
 // ─── HEADER ──────────────────────────────────────────────────────────────────
 const Header=({screen,contractor,onBack,onHome})=>(
-  <div style={{background:C.surf,borderBottom:`1px solid ${C.bdr}`,padding:"12px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100,minHeight:60,boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
+  <div style={{background:C.surf,borderBottom:`1px solid ${C.bdr}`,padding:"12px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100,minHeight:60,boxShadow:"0 1px 3px rgba(0,0,0,0.06)",borderTop:"3px solid #4BA3C7"}}>
     <div style={{display:"flex",alignItems:"center",gap:16,cursor:"pointer"}} onClick={onHome}>
       <PrommacLogo/>
     </div>
@@ -99,8 +167,8 @@ const Header=({screen,contractor,onBack,onHome})=>(
 const Landing=({goContractor,goMgmt})=>{
   const [hov,setHov]=useState(null);
   const cards=[
-    {key:'con',icon:'🏗️',title:'Contractor Portal',desc:'Submit personnel, upload documents, track your team’s mobilization status — no email login required.',cta:'Enter Portal →',color:C.orange,onClick:goContractor},
-    {key:'mgmt',icon:'📊',title:'Management Dashboard',desc:'Full project overview, compliance tracking, document status, and real-time personnel readiness across all contractors.',cta:'Open Dashboard →',color:C.blue,onClick:goMgmt},
+    {key:'con',icon:'CP',title:'Contractor Portal',desc:'Submit personnel, upload documents, track your team’s mobilization status — no email login required.',cta:'Enter Portal →',color:C.orange,onClick:goContractor},
+    {key:'mgmt',icon:'MD',title:'Management Dashboard',desc:'Full project overview, compliance tracking, document status, and real-time personnel readiness across all contractors.',cta:'Open Dashboard →',color:C.blue,onClick:goMgmt},
   ];
   return (
     <div style={{minHeight:'calc(100vh - 56px)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:'40px 24px'}}>
@@ -119,8 +187,8 @@ const Landing=({goContractor,goMgmt})=>{
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:18,maxWidth:580,margin:'0 auto'}}>
           {cards.map(({key,icon,title,desc,cta,color,onClick})=>(
             <div key={key} onClick={onClick} onMouseEnter={()=>setHov(key)} onMouseLeave={()=>setHov(null)}
-              style={{background:hov===key?C.cardH:C.card,border:`1px solid ${hov===key?color:C.bdr}`,borderRadius:14,padding:'28px 22px',cursor:'pointer',textAlign:'left',transition:'all .2s'}}>
-              <div style={{fontSize:28,marginBottom:12}}>{icon}</div>
+              style={{background:hov===key?C.cardH:C.card,border:`1px solid ${hov===key?color:C.bdr}`,borderRadius:8,padding:'24px 22px',cursor:'pointer',textAlign:'left',transition:'all .2s',boxShadow:hov===key?'0 4px 12px rgba(0,0,0,0.1)':'0 1px 3px rgba(0,0,0,0.06)'}}>
+              <div style={{width:40,height:40,borderRadius:8,background:color+'18',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,fontWeight:800,color:color,marginBottom:12}}>{icon}</div>
               <div style={{fontSize:17,fontWeight:800,color:C.white,marginBottom:8}}>{title}</div>
               <div style={{fontSize:12,color:C.dim,lineHeight:1.6,marginBottom:18}}>{desc}</div>
               <div style={{color,fontWeight:700,fontSize:13}}>{cta}</div>
@@ -154,14 +222,19 @@ const Login=({defaultTab='contractor',onContractorLogin,onMgmtLogin})=>{
   return (
     <div style={{minHeight:'calc(100vh - 56px)',display:'flex',alignItems:'center',justifyContent:'center',padding:'40px 24px'}}>
       <div style={{width:'100%',maxWidth:430}}>
-        <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:20,marginBottom:24}}>
-          <PrommacLogo/>
+        <div style={{textAlign:'center',marginBottom:28}}>
+          <div style={{display:'flex',justifyContent:'center',marginBottom:16}}><PrommacLogo scale={1.8}/></div>
+          <h2 style={{fontSize:20,fontWeight:800,color:C.text,margin:'0 0 6px'}}>Contractor Mobilization Portal</h2>
+          <div style={{fontSize:13,color:C.dim,marginBottom:16}}>Air Liquide Freeport ASU3 Turnaround 2026</div>
+          <div style={{textAlign:'left',background:'#F0F4F8',borderRadius:8,padding:'14px 18px',fontSize:12,color:C.dim,lineHeight:1.7,marginBottom:4}}>
+            Welcome. This portal is used to register and mobilize contractor personnel for the Freeport ASU3 turnaround. You will need to provide personal details, valid safety training certificates, competency information, and the signed Air Liquide HSE orientation form for each individual. Please have all documents ready before starting.
+          </div>
         </div>
         <Card>
           <div style={{display:'flex',border:`1px solid ${C.bdr}`,borderRadius:8,overflow:'hidden',marginBottom:28}}>
-            {[['contractor','🏗️ Contractor'],['mgmt','📊 Management']].map(([t,label])=>(
+            {[['contractor','Contractor'],['mgmt','Management']].map(([t,label])=>(
               <button key={t} onClick={()=>{setTab(t);setErr('');setCode('');setMgmtCode('');}}
-                style={{flex:1,padding:'9px',background:tab===t?C.orange:'transparent',color:tab===t?'#fff':C.mute,border:'none',cursor:'pointer',fontWeight:700,fontSize:12,transition:'all .2s'}}>{label}</button>
+                style={{flex:1,padding:'9px',background:tab===t?'#1A2B4A':'transparent',color:tab===t?'#fff':C.mute,border:'none',cursor:'pointer',fontWeight:700,fontSize:12,transition:'all .2s'}}>{label}</button>
             ))}
           </div>
           {tab==='contractor'?(
@@ -194,25 +267,31 @@ const Login=({defaultTab='contractor',onContractorLogin,onMgmtLogin})=>{
 
 // ─── FORM ─────────────────────────────────────────────────────────────────────
 const STEPS=['Personal Info','Safety Training','Competency','Job-Specific','Documents'];
-const EMPTY={fn:'',ln:'',trade:'',tradeOther:'',start:'',end:'',photoID:false,bp:'',swp:'',nasu:'',training:false,ct:'',comp:'',compDoc:false,jstCS:false,jstWH:false,jstCrane:false,jstScaff:false,jstOther:false,jstOtherDesc:'',jstDocs:false,hse:false};
+const EMPTY={fn:'',ln:'',trade:'',tradeOther:'',start:'',end:'',photoID:false,bp:'',bpDoc:false,swp:'',swpDoc:false,nasu:'',nasuDoc:false,training:false,ct:'',comp:'',compDoc:false,jstCS:false,jstCSDoc:false,jstWH:false,jstWHDoc:false,jstCrane:false,jstCraneDoc:false,jstScaff:false,jstScaffDoc:false,jstOther:false,jstOtherDoc:false,jstOtherDesc:'',jstDocs:false,hse:false};
 
-const Form=({contractor,onSubmit,onRoster})=>{
+const Form=({contractor,tarEnd,onSubmit,onRoster,editData,uploadFile,trades})=>{
   const [step,setStep]=useState(1);
-  const [f,setF]=useState(EMPTY);
+  const doUpload=(fieldKey,fileInfo)=>{
+    s(fieldKey,true);
+    if(uploadFile&&fileInfo&&fileInfo.fileData){
+      uploadFile(fileInfo,contractor,f.fn,f.ln);
+    }
+  };
+  const [f,setF]=useState(editData||EMPTY);
   const [done,setDone]=useState(false);
   const s=(k,v)=>setF(p=>({...p,[k]:v}));
   const ok=[
-    ()=>f.fn&&f.ln&&(f.trade&&f.trade!=='Other'||f.tradeOther)&&f.start&&f.end&&f.photoID,
-    ()=>f.bp&&f.swp&&f.nasu&&f.training,
+    ()=>f.fn&&f.ln&&(f.trade&&f.trade!=='Other — Pending Approval'||f.tradeOther)&&f.start&&f.end&&f.photoID,
+    ()=>f.bp&&f.swp&&f.nasu&&f.bpDoc&&f.swpDoc&&f.nasuDoc&&new Date(f.bp+'T12:00:00')>=tarEnd&&new Date(f.swp+'T12:00:00')>=tarEnd&&new Date(f.nasu+'T12:00:00')>=tarEnd,
     ()=>f.ct&&f.comp&&(f.ct!=='Qualification'||f.compDoc),
     ()=>true,
     ()=>f.hse,
   ];
-  const handleSubmit=()=>{onSubmit({...f,id:Date.now(),con:contractor});setDone(true);};
+  const handleSubmit=()=>{onSubmit({...f,id:f.id||Date.now(),con:contractor,training:f.bpDoc&&f.swpDoc&&f.nasuDoc});setDone(true);};
 
   if(done) return (
     <div style={{maxWidth:480,margin:'60px auto',padding:24,textAlign:'center'}}>
-      <div style={{fontSize:56,marginBottom:18}}>✅</div>
+      <div style={{width:56,height:56,borderRadius:'50%',background:'#ECFDF5',border:'2px solid #10B981',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 18px',fontSize:22,color:C.ok,fontWeight:700}}>✓</div>
       <h2 style={{color:C.ok,fontSize:22,fontWeight:800,margin:'0 0 12px'}}>Submitted Successfully!</h2>
       <p style={{color:C.dim,lineHeight:1.7,margin:'0 0 28px'}}><strong style={{color:C.text}}>{f.fn} {f.ln}</strong>'s mobilization record has been submitted. The Prommac team will review and assign badge/shift details.</p>
       <div style={{display:'flex',gap:12,justifyContent:'center'}}>
@@ -229,65 +308,65 @@ const Form=({contractor,onSubmit,onRoster})=>{
         <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
           {STEPS.map((nm,i)=>(
             <div key={i} style={{display:'flex',flexDirection:'column',alignItems:'center',flex:1}}>
-              <div style={{width:26,height:26,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:'#fff',background:i+1<step?C.ok:i+1===step?C.orange:C.bdr,marginBottom:4,transition:'background .3s'}}>{i+1<step?'✓':i+1}</div>
-              <div style={{fontSize:9,color:i+1===step?C.orange:C.mute,textAlign:'center',textTransform:'uppercase',fontWeight:600}}>{nm}</div>
+              <div style={{width:28,height:28,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:i+1<=step?'#fff':C.mute,background:i+1<step?C.ok:i+1===step?'#4BA3C7':C.bg,border:i+1>step?`2px solid ${C.bdr}`:'2px solid transparent',marginBottom:4,transition:'all .3s'}}>{i+1<step?'\u2713':i+1}</div>
+              <div style={{fontSize:9,color:i+1===step?'#4BA3C7':C.mute,textAlign:'center',textTransform:'uppercase',fontWeight:600}}>{nm}</div>
             </div>
           ))}
         </div>
         <div style={{height:3,background:C.bdr,borderRadius:2,margin:'8px 13px 0'}}>
-          <div style={{height:'100%',background:C.orange,borderRadius:2,width:`${((step-1)/4)*100}%`,transition:'width .35s'}}/>
+          <div style={{height:'100%',background:'#4BA3C7',borderRadius:2,width:`${((step-1)/4)*100}%`,transition:'width .35s'}}/>
         </div>
       </div>
 
       <Card>
         {step===1&&(
           <>
-            <h3 style={{margin:'0 0 22px',fontSize:17,fontWeight:800,color:C.white}}>👤 Personal Information</h3>
+            <h3 style={{margin:'0 0 22px',fontSize:16,fontWeight:700,color:C.text,paddingLeft:12,borderLeft:'3px solid #1A2B4A'}}>Personal Information</h3>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
               <Fld label="First Name" req><Inp val={f.fn} set={v=>s('fn',v)} ph="John"/></Fld>
               <Fld label="Last Name" req><Inp val={f.ln} set={v=>s('ln',v)} ph="Smith"/></Fld>
             </div>
-            <Fld label="Trade / Role" req><Sel val={f.trade} set={v=>s('trade',v)} opts={TRADES} ph="— Select trade —"/></Fld>
-            {f.trade==='Other'&&<Fld label="Specify Trade" req><Inp val={f.tradeOther} set={v=>s('tradeOther',v)} ph="Describe the trade or role"/></Fld>}
+            <Fld label="Trade / Role" req><Sel val={f.trade} set={v=>s('trade',v)} opts={trades||DEFAULT_TRADES} ph="— Select trade —"/></Fld>
+            {f.trade==='Other — Pending Approval'&&<><div style={{padding:'8px 12px',borderRadius:6,background:'#FFFBEB',border:'1px solid #FDE68A',fontSize:12,color:'#92400E',marginBottom:12}}>This trade is not on the approved list. It will be submitted for management approval before the person can be mobilized.</div><Fld label="Specify Trade" req><Inp val={f.tradeOther} set={v=>s('tradeOther',v)} ph="Describe the trade or role"/></Fld></>}
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
               <Fld label="Start Date" req><Inp type="date" val={f.start} set={v=>s('start',v)}/></Fld>
               <Fld label="Finish Date" req><Inp type="date" val={f.end} set={v=>s('end',v)}/></Fld>
             </div>
             <Fld label="Photo ID Upload" req hint="Government-issued photo ID (driver's licence, passport, etc.)">
-              <UploadBox label="Photo ID" done={f.photoID} onToggle={()=>s('photoID',!f.photoID)}/>
+              <UploadBox label="Photo ID" done={f.photoID} onToggle={(name)=>s('photoID',!!name)} onFile={(fi)=>doUpload('photoID',fi)}/>
             </Fld>
           </>
         )}
         {step===2&&(
           <>
-            <h3 style={{margin:'0 0 8px',fontSize:17,fontWeight:800,color:C.white}}>🎓 Safety Training</h3>
-            <p style={{margin:'0 0 22px',fontSize:12,color:C.dim}}>Enter the expiry dates shown on official training certificates. All three are mandatory.</p>
+            <h3 style={{margin:'0 0 8px',fontSize:16,fontWeight:700,color:C.text,paddingLeft:12,borderLeft:'3px solid #1A2B4A'}}>Safety Training</h3>
+            <p style={{margin:'0 0 12px',fontSize:12,color:C.dim}}>Enter the expiry dates shown on official training certificates. All three are mandatory.</p>
+            <div style={{padding:'10px 14px',borderRadius:8,background:'#FEF2F2',border:'1px solid #FECACA',fontSize:12,color:'#DC2626',marginBottom:18,fontWeight:600}}>All training must be valid through {tarEnd.toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'})} (turnaround end date). Expiry dates before this date will not be accepted.</div>
             <div style={{background:C.surf,border:`1px solid ${C.bdr}`,borderRadius:10,padding:18,marginBottom:20}}>
               <div style={{fontSize:10,fontWeight:700,color:C.orange,letterSpacing:'1px',textTransform:'uppercase',marginBottom:16}}>Mandatory Training Expiry Dates</div>
-              <Fld label="12 Basic Plus — Expiry Date" req hint="12-hour Basic Plus Safety Council certification">
-                <Inp type="date" val={f.bp} set={v=>s('bp',v)}/>
-              </Fld>
-              <Fld label="19A AIL SWP — Expiry Date" req hint="Air Liquide Site Work Procedure induction">
-                <Inp type="date" val={f.swp} set={v=>s('swp',v)}/>
-              </Fld>
-              <Fld label="19A AIL NASU — Expiry Date" req hint="Nederland ASU site-specific induction">
-                <Inp type="date" val={f.nasu} set={v=>s('nasu',v)}/>
-              </Fld>
+              {[['bp','bpDoc','12 Basic Plus','12-hour Basic Plus Safety Council certification'],['swp','swpDoc','19A AIL SWP','Air Liquide Site Work Procedure induction'],['nasu','nasuDoc','19A AIL NASU','Nederland ASU site-specific induction']].map(([dk,ck,label,hint])=>(
+                <div key={dk} style={{marginBottom:16}}>
+                  <Fld label={label+' — Expiry Date'} req hint={hint}>
+                    <Inp type="date" val={f[dk]} set={v=>s(dk,v)}/>
+                    {f[dk]&&new Date(f[dk]+'T12:00:00')<tarEnd&&<div style={{color:'#DC2626',fontSize:11,fontWeight:600,marginTop:4}}>Expiry date must be on or after {tarEnd.toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'})}</div>}
+                  </Fld>
+                  {f[dk]&&<div style={{marginTop:4}}>
+                    <UploadBox label={label+' certificate'} done={f[ck]} onToggle={(name)=>s(ck,!!name)} onFile={(fi)=>doUpload(ck,fi)}/>
+                  </div>}
+                </div>
+              ))}
             </div>
-            <Fld label="Proof of Training Documents" req hint="Upload all three training certificates (one file or multiple)">
-              <UploadBox label="Training Certificates" done={f.training} onToggle={()=>s('training',!f.training)}/>
-            </Fld>
           </>
         )}
         {step===3&&(
           <>
-            <h3 style={{margin:'0 0 8px',fontSize:17,fontWeight:800,color:C.white}}>🏅 Competency Declaration</h3>
+            <h3 style={{margin:'0 0 8px',fontSize:16,fontWeight:700,color:C.text,paddingLeft:12,borderLeft:'3px solid #1A2B4A'}}>Competency Declaration</h3>
             <p style={{margin:'0 0 22px',fontSize:12,color:C.dim}}>How does this individual demonstrate competency for their role?</p>
             <Fld label="Competency Type" req>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
                 {['Experience','Qualification'].map(t=>(
                   <div key={t} onClick={()=>s('ct',t)} style={{padding:16,borderRadius:10,cursor:'pointer',border:`2px solid ${f.ct===t?C.orange:C.bdr}`,background:f.ct===t?'#EBF8FF':C.surf,textAlign:'center',transition:'all .2s'}}>
-                    <div style={{fontSize:22,marginBottom:6}}>{t==='Experience'?'🧠':'📜'}</div>
+                    
                     <div style={{fontSize:13,fontWeight:700,color:f.ct===t?C.orange:C.text}}>{t}</div>
                     <div style={{fontSize:10,color:C.mute,marginTop:3}}>{t==='Experience'?'Years in trade':'Trade cert / licence'}</div>
                   </div>
@@ -298,30 +377,33 @@ const Form=({contractor,onSubmit,onRoster})=>{
               <Inp val={f.comp} set={v=>s('comp',v)} ph={f.ct==='Experience'?'e.g. 10 years scaffolding experience':'e.g. TDLR Instrument Tech, Journeyman Pipefitter'}/>
             </Fld>}
             {f.ct==='Qualification'&&<Fld label="Competency Document" req hint="Upload trade certificate, TDLR card, or relevant qualification">
-              <UploadBox label="Competency Document" done={f.compDoc} onToggle={()=>s('compDoc',!f.compDoc)}/>
+              <UploadBox label="Competency Document" done={f.compDoc} onToggle={(name)=>s('compDoc',!!name)} onFile={(fi)=>doUpload('compDoc',fi)}/>
             </Fld>}
             {f.ct==='Experience'&&<div style={{padding:'10px 14px',borderRadius:8,background:C.surf,border:`1px solid ${C.bdr}`,fontSize:12,color:C.dim}}>ℹ No document upload required for experience-based competency — the description above is sufficient.</div>}
           </>
         )}
         {step===4&&(
           <>
-            <h3 style={{margin:'0 0 8px',fontSize:17,fontWeight:800,color:C.white}}>⚙️ Job-Specific Training</h3>
-            <p style={{margin:'0 0 20px',fontSize:12,color:C.dim}}>Select all applicable certifications. Upload supporting documents where required.</p>
-            {[['jstCS','🔒','Confined Space Entry'],['jstWH','🪜','Working at Heights / Fall Protection'],['jstCrane','🏗️','Crane Operator'],['jstScaff','🦺','Scaffolding / Elevated Work'],['jstOther','➕','Other (specify below)']].map(([k,icon,label])=>(
-              <div key={k} onClick={()=>s(k,!f[k])} style={{display:'flex',alignItems:'center',gap:12,padding:'12px 14px',marginBottom:8,borderRadius:8,cursor:'pointer',border:`1px solid ${f[k]?C.orange:C.bdr}`,background:f[k]?'#EBF8FF':C.surf,transition:'all .2s'}}>
-                <div style={{width:18,height:18,borderRadius:4,border:`2px solid ${f[k]?C.orange:C.mute}`,background:f[k]?C.orange:'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{f[k]&&<span style={{color:'#fff',fontSize:10,fontWeight:700}}>✓</span>}</div>
-                <span style={{fontSize:13}}>{icon}</span>
-                <span style={{fontSize:13,color:C.text}}>{label}</span>
+            <h3 style={{margin:'0 0 8px',fontSize:16,fontWeight:700,color:C.text,paddingLeft:12,borderLeft:'3px solid #1A2B4A'}}>Job-Specific Training</h3>
+            <p style={{margin:'0 0 20px',fontSize:12,color:C.dim}}>Select any specific training or qualifications this person requires to execute their role on site. Attach proof of each qualification selected. Examples include: confined space entry, working at heights, crane operation, welding certifications, scaffolding, ASME qualifications, fall arrest refresher, or any other role-relevant training.</p>
+            {[['jstCS','jstCSDoc','Confined Space Entry'],['jstWH','jstWHDoc','Working at Heights / Fall Protection'],['jstCrane','jstCraneDoc','Crane Operator'],['jstScaff','jstScaffDoc','Scaffolding / Elevated Work'],['jstOther','jstOtherDoc','Other (specify below)']].map(([k,dk,label])=>(
+              <div key={k} style={{marginBottom:8,borderRadius:8,border:`1px solid ${f[k]?C.orange:C.bdr}`,background:f[k]?'#EBF8FF':C.surf,transition:'all .2s'}}>
+                <div onClick={()=>s(k,!f[k])} style={{display:'flex',alignItems:'center',gap:12,padding:'12px 14px',cursor:'pointer'}}>
+                  <div style={{width:18,height:18,borderRadius:4,border:`2px solid ${f[k]?C.orange:C.mute}`,background:f[k]?C.orange:'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{f[k]&&<span style={{color:'#fff',fontSize:10,fontWeight:700}}>\u2713</span>}</div>
+                  <span style={{fontSize:13,color:C.text}}>{label}</span>
+                </div>
+                {f[k]&&<div style={{padding:'8px 14px 12px 46px',borderTop:`1px solid ${C.bdr}`}}>
+                  <UploadBox label={label+' qualification'} done={f[dk]} onToggle={(name)=>s(dk,!!name)} onFile={(fi)=>doUpload(dk,fi)}/>
+                </div>}
               </div>
             ))}
-            {f.jstOther&&<Fld label="Describe Other Training" req={f.jstOther}><Inp val={f.jstOtherDesc} set={v=>s('jstOtherDesc',v)} ph="Describe the additional certification or training"/></Fld>}
-            {(f.jstCS||f.jstWH||f.jstCrane||f.jstScaff||f.jstOther)&&<Fld label="Supporting Documents" hint="Upload certificates for all selected items"><UploadBox label="Job-Specific Training Docs" done={f.jstDocs} onToggle={()=>s('jstDocs',!f.jstDocs)}/></Fld>}
+            {f.jstOther&&<Fld label="Describe Other Training" req={f.jstOther}><Inp val={f.jstOtherDesc} set={v=>s('jstOtherDesc',v)} ph="e.g. Welding qualification, ASME certification, fall arrest refresher"/></Fld>}
             {!f.jstCS&&!f.jstWH&&!f.jstCrane&&!f.jstScaff&&!f.jstOther&&<div style={{padding:'10px 14px',borderRadius:8,background:C.surf,border:`1px solid ${C.bdr}`,fontSize:12,color:C.mute}}>No job-specific training selected — you may continue to the next step.</div>}
           </>
         )}
         {step===5&&(
           <>
-            <h3 style={{margin:'0 0 8px',fontSize:17,fontWeight:800,color:C.white}}>📋 Air Liquide HSE Orientation Form</h3>
+            <h3 style={{margin:'0 0 8px',fontSize:16,fontWeight:700,color:C.text,paddingLeft:12,borderLeft:'3px solid #1A2B4A'}}>Air Liquide HSE Orientation Form</h3>
             <p style={{margin:'0 0 20px',fontSize:12,color:C.dim}}>Document 2-ALL-HSS-0125-F (Rev.4) must be completed and signed for every individual entering site.</p>
             {/* AL-branded download card */}
             <div style={{background:'#EBF5FF',border:`1px solid #4BA3C7`,borderRadius:10,padding:'14px 18px',marginBottom:18,display:'flex',alignItems:'center',gap:16}}>
@@ -330,7 +412,7 @@ const Form=({contractor,onSubmit,onRoster})=>{
                 <div style={{fontSize:12,fontWeight:700,color:C.white}}>Visitor/Contractor Orientation Form</div>
                 <div style={{fontSize:10,color:'#4BA3C7',marginTop:2}}>2-ALL-HSS-0125-F · Rev.4 · Valid 1 year from date of signature</div>
               </div>
-              <Btn v="secondary" sm>⬇ Download</Btn>
+              <Btn v="secondary" sm>Download</Btn>
             </div>
             <div style={{marginBottom:18,padding:14,borderRadius:8,background:C.surf,border:`1px solid ${C.bdr}`}}>
               {['Download the form using the button above','Complete: Name, Phone, Company, Scope of Visit','Tick all applicable Safety Orientation checkboxes','Have reviewer sign and date both pages','Upload the completed signed form below'].map((tx,i)=>(
@@ -340,11 +422,11 @@ const Form=({contractor,onSubmit,onRoster})=>{
               ))}
             </div>
             <Fld label="Completed & Signed HSE Orientation Form" req hint="Upload signed 2-ALL-HSS-0125-F — mandatory for site access">
-              <UploadBox label="Air Liquide HSE Orientation Form" done={f.hse} onToggle={()=>s('hse',!f.hse)}/>
+              <UploadBox label="Air Liquide HSE Orientation Form" done={f.hse} onToggle={(name)=>s('hse',!!name)} onFile={(fi)=>doUpload('hse',fi)}/>
             </Fld>
             <Divline label="Submission Preview"/>
             <div style={{background:C.surf,borderRadius:10,padding:16,fontSize:12}}>
-              {[['Name',`${f.fn} ${f.ln}`],['Contractor',contractor],['Trade',f.trade==='Other'?f.tradeOther:f.trade],['Period',`${f.start} → ${f.end}`],['Competency',`${f.ct} — ${f.comp}`],['Training Docs',f.training?'✓ Uploaded':'⚠ Missing'],['HSE Form',f.hse?'✓ Uploaded':'⚠ Missing']].map(([k,v])=>(
+              {[['Name',`${f.fn} ${f.ln}`],['Contractor',contractor],['Trade',f.trade==='Other — Pending Approval'?f.tradeOther:f.trade],['Period',`${f.start} → ${f.end}`],['Competency',`${f.ct} — ${f.comp}`],['Training Docs',f.training?'✓ Uploaded':'⚠ Missing'],['HSE Form',f.hse?'✓ Uploaded':'⚠ Missing']].map(([k,v])=>(
                 <div key={k} style={{display:'flex',gap:8,padding:'5px 0',borderBottom:`1px solid ${C.bdr}33`}}>
                   <span style={{color:C.mute,minWidth:110}}>{k}:</span>
                   <span style={{color:C.text,fontWeight:600}}>{v}</span>
@@ -355,7 +437,7 @@ const Form=({contractor,onSubmit,onRoster})=>{
         )}
         <div style={{display:'flex',justifyContent:'space-between',marginTop:28,paddingTop:22,borderTop:`1px solid ${C.bdr}`}}>
           <Btn v="ghost" onClick={()=>setStep(p=>Math.max(1,p-1))} disabled={step===1}>← Previous</Btn>
-          {step<5?<Btn onClick={()=>setStep(p=>p+1)} disabled={!ok[step-1]()}>Continue →</Btn>:<Btn onClick={handleSubmit} disabled={!ok[4]()}>✅ Submit Record</Btn>}
+          {step<5?<Btn onClick={()=>setStep(p=>p+1)} disabled={!ok[step-1]()}>Continue →</Btn>:<Btn onClick={handleSubmit} disabled={!ok[4]()}>Submit Record</Btn>}
         </div>
       </Card>
     </div>
@@ -363,30 +445,155 @@ const Form=({contractor,onSubmit,onRoster})=>{
 };
 
 // ─── ROSTER ───────────────────────────────────────────────────────────────────
-const RosterView=({contractor,allP,onAdd})=>{
+const RosterView=({contractor,allP,onAdd,onBulkAdd,onEdit,onDelete})=>{
   const mine=allP.filter(p=>(p.con||p.contractor)===contractor);
   const statuses=mine.map(personStatus);
-  const ready=statuses.filter(s=>s==='Ready').length;
+  const ready=statuses.filter(s=>s==='Accepted').length;
   const issues=mine.length-ready;
   return (
     <div style={{maxWidth:1000,margin:'0 auto',padding:'28px 20px'}}>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:24,flexWrap:'wrap',gap:12}}>
-        <div>
-          <h2 style={{margin:'0 0 4px',fontSize:22,fontWeight:800,color:C.white}}>{contractor} — Personnel Roster</h2>
-          <p style={{margin:0,fontSize:12,color:C.mute}}>Only your personnel are visible. Contact Prommac for access issues.</p>
+      <div style={{background:C.card,border:`1px solid ${C.bdr}`,borderRadius:10,padding:'20px 24px',marginBottom:24,boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
+        <h2 style={{margin:'0 0 8px',fontSize:20,fontWeight:800,color:C.text}}>{contractor} — Personnel Mobilization</h2>
+        <p style={{margin:'0 0 16px',fontSize:13,color:C.dim,lineHeight:1.7}}>Welcome to the Air Liquide Freeport ASU3 Turnaround 2026 mobilization portal. As a selected contractor, your personnel information is required to ensure time and attendance control and managed access to site. Once mobilized, each individual will be registered on the gate access system and assigned an access number used to track time on-site.</p>
+        <div style={{background:'#EFF8FC',borderRadius:8,padding:16,marginBottom:16,border:'1px solid #D4EDF7'}}>
+          <div style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:8}}>How to submit personnel:</div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+            <div style={{fontSize:12,color:C.dim,lineHeight:1.6}}><strong style={{color:C.text}}>Option 1 — Individual entry</strong><br/>Use the "Add Person" button to complete the mobilization form for each person. You will need to provide training certificates, competency details, and the signed HSE orientation form.</div>
+            <div style={{fontSize:12,color:C.dim,lineHeight:1.6}}><strong style={{color:C.text}}>Option 2 — Bulk import (CSV or Excel)</strong><br/>Download the template, fill in all personnel details, then upload it using "Bulk Upload". Accepts CSV and Excel (.xlsx, .xlsm) files. Note: training certificates and documents must still be attached individually after import.</div>
+          </div>
         </div>
-        <Btn onClick={onAdd}>+ Add Person</Btn>
+      </div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:24,flexWrap:'wrap',gap:12}}>
+        <div style={{fontSize:13,color:C.mute}}>{mine.length} personnel registered</div>
+        <div style={{display:'flex',gap:8}}>
+          <Btn v="outline" onClick={()=>{
+            // Show instructions before download
+            const proceed=confirm('MOBILIZATION TEMPLATE INSTRUCTIONS\n\n' +
+              'Please read before completing:\n\n' +
+              '1. DO NOT modify, delete, or rearrange the column headers in Row 1\n' +
+              '2. Use date format MM/DD/YYYY for all dates (e.g. 05/15/2026)\n' +
+              '3. Trade must match an approved trade from the portal dropdown\n' +
+              '4. Competency Type must be either "Experience" or "Qualification"\n' +
+              '5. All training expiry dates must be valid past the turnaround end date\n' +
+              '6. Save as .xlsx or .csv when complete\n' +
+              '7. Training certificates and documents must still be uploaded individually after import\n\n' +
+              'Click OK to download the template.');
+            if(!proceed)return;
+            // Generate Excel template with locked headers
+            const wb=XLSX.utils.book_new();
+            const tradeList=(trades||DEFAULT_TRADES).filter(t=>t!=='Other \u2014 Pending Approval');
+            const headers=['First Name','Last Name','Trade','Start Date','End Date','12 Basic Plus Expiry','19A AIL SWP Expiry','19A AIL NASU Expiry','Competency Type','Competency Detail'];
+            const wsData=[headers];
+            // Add 50 empty rows for data entry
+            for(let r=0;r<50;r++)wsData.push(['','','','','','','','','','']);
+            const ws=XLSX.utils.aoa_to_sheet(wsData);
+            ws['!cols']=headers.map(h=>({wch:Math.max(h.length+4,18)}));
+            // Add data validation for Trade column (C2:C51) and Competency Type (I2:I51)
+            if(!ws['!dataValidation'])ws['!dataValidation']=[];
+            // Note: SheetJS doesn't support data validation in writes, so add a Trades reference sheet instead
+            XLSX.utils.book_append_sheet(wb,ws,'Personnel');
+            // Add Trades reference sheet
+            const tradesData=[['Approved Trades — copy from this list into the Trade column']];
+            tradeList.forEach(t=>tradesData.push([t]));
+            tradesData.push(['']);
+            tradesData.push(['If your trade is not listed, type it in the Trade column.']);
+            tradesData.push(['It will require management approval before mobilization.']);
+            const wsTrades=XLSX.utils.aoa_to_sheet(tradesData);
+            wsTrades['!cols']=[{wch:55}];
+            XLSX.utils.book_append_sheet(wb,wsTrades,'Approved Trades');
+            // Add instructions sheet
+            const wsInst=XLSX.utils.aoa_to_sheet([
+              ['MOBILIZATION TEMPLATE — '+contractor],
+              [''],
+              ['IMPORTANT: Do not modify the column headers in the Personnel sheet.'],
+              ['The headers must remain exactly as provided for the upload to work.'],
+              [''],
+              ['DATE FORMAT: All dates must be entered as MM/DD/YYYY (e.g. 05/15/2026)'],
+              [''],
+              ['Column Guide:'],
+              ['First Name — Employee first name'],
+              ['Last Name — Employee last name'],
+              ['Trade — Job trade/role (e.g. Pipefitter, Welder, Instrument Tech)'],
+              ['Start Date — Mobilization start date (MM/DD/YYYY)'],
+              ['End Date — Mobilization end date (MM/DD/YYYY)'],
+              ['12 Basic Plus Expiry — 12-hour Basic Plus Safety Council cert expiry (MM/DD/YYYY)'],
+              ['19A AIL SWP Expiry — Air Liquide Site Work Procedure induction expiry (MM/DD/YYYY)'],
+              ['19A AIL NASU Expiry — Nederland ASU site-specific induction expiry (MM/DD/YYYY)'],
+              ['Competency Type — Either "Experience" or "Qualification"'],
+              ['Competency Detail — Description (e.g. "10 years" or "TDLR Instrument Tech")'],
+              [''],
+              ['After filling in the Personnel sheet, save and upload via the portal.'],
+              ['Training certificates and documents must still be uploaded individually after import.']
+            ]);
+            wsInst['!cols']=[{wch:80}];
+            XLSX.utils.book_append_sheet(wb,wsInst,'Instructions');
+            const wbOut=XLSX.write(wb,{type:'array',bookType:'xlsx'});
+            const blob=new Blob([wbOut],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+            const url=URL.createObjectURL(blob);
+            const a=document.createElement('a');a.href=url;a.download=contractor.replace(/\s/g,'_')+'_mobilization_template.xlsx';a.click();URL.revokeObjectURL(url);
+          }}>Download Template (.xlsx)</Btn>
+          <Btn v="outline" onClick={()=>{
+            const inp=document.createElement('input');
+            inp.type='file';
+            inp.accept='.csv,.xlsx,.xls,.xlsm';
+            inp.onchange=(ev)=>{
+              const file=ev.target.files[0];
+              if(!file)return;
+              const isExcel=file.name.match(/\.xls[xm]?$/i);
+              if(isExcel){
+                const reader=new FileReader();
+                reader.onload=rev=>{
+                  try{
+                    const wb=XLSX.read(rev.target.result,{type:'array'});
+                    const ws=wb.Sheets[wb.SheetNames[0]];
+                    const rows=XLSX.utils.sheet_to_json(ws,{defval:'',raw:false});
+                    let count=0;
+                    rows.forEach((row,i)=>{
+                      const fn=String(row['First Name']||'').trim();if(!fn)return;
+                      const rec={id:Date.now()+i,con:contractor,fn,ln:String(row['Last Name']||'').trim(),trade:String(row['Trade']||'').trim(),start:cleanDate(row['Start Date']),end:cleanDate(row['End Date']||row['Finish Date']),bp:cleanDate(row['12 Basic Plus Expiry']),swp:cleanDate(row['19A AIL SWP Expiry']),nasu:cleanDate(row['19A AIL NASU Expiry']),ct:String(row['Competency Type']||'Experience').trim(),comp:String(row['Competency Detail']||'').trim(),photoID:false,training:false,hse:false,compDoc:false};
+                      onBulkAdd(rec);count++;
+                    });
+                    alert(count+' personnel imported successfully. Training certificates and documents must still be uploaded individually.');
+                  }catch(err){alert('Error reading file: '+err.message);}
+                };
+                reader.readAsArrayBuffer(file);
+              }else{
+                const reader=new FileReader();
+                reader.onload=rev=>{
+                  try{
+                    const lines=rev.target.result.split('\n').filter(l=>l.trim());
+                    if(lines.length<2){alert('File must have a header row and at least one data row.');return;}
+                    const hdrs=lines[0].split(',').map(h=>h.trim());
+                    let count=0;
+                    for(let i=1;i<lines.length;i++){
+                      const vals=lines[i].split(',').map(v=>v.trim());
+                      if(vals.length<2)continue;
+                      const row={};hdrs.forEach((h,j)=>row[h]=vals[j]||'');
+                      if(!row['First Name'])continue;
+                      const rec={id:Date.now()+i,con:contractor,fn:row['First Name']||'',ln:row['Last Name']||'',trade:row['Trade']||'',start:cleanDate(row['Start Date']),end:cleanDate(row['End Date']||row['Finish Date']),bp:cleanDate(row['12 Basic Plus Expiry']),swp:cleanDate(row['19A AIL SWP Expiry']),nasu:cleanDate(row['19A AIL NASU Expiry']),ct:row['Competency Type']||'Experience',comp:row['Competency Detail']||'',photoID:false,training:false,hse:false,compDoc:false};
+                      onBulkAdd(rec);count++;
+                    }
+                    alert(count+' personnel imported successfully. Training certificates and documents must still be uploaded individually.');
+                  }catch(err){alert('Error reading file: '+err.message);}
+                };
+                reader.readAsText(file);
+              }
+            };
+            inp.click();
+          }}>Bulk Upload</Btn>
+          <Btn onClick={onAdd}>+ Add Person</Btn>
+        </div>
       </div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:14,marginBottom:24}}>
-        <StatCard label="Total Personnel" val={mine.length} color={C.blue} icon="👥"/>
-        <StatCard label="Ready to Mobilize" val={ready} color={C.ok} icon="✅"/>
-        <StatCard label="Requires Attention" val={issues} color={issues>0?C.warn:C.ok} icon={issues>0?'⚠️':'✓'}/>
+        <StatCard label="Total Personnel" val={mine.length} color={C.blue}/>
+        <StatCard label="Ready to Mobilize" val={ready} color={C.ok}/>
+        <StatCard label="Requires Attention" val={issues} color={issues>0?C.warn:C.ok}/>
       </div>
       {mine.length===0?(
         <Card style={{textAlign:'center',padding:'56px 24px'}}>
-          <div style={{fontSize:44,marginBottom:14}}>👥</div>
+          <div style={{width:44,height:44,borderRadius:'50%',background:C.bg,border:`1px solid ${C.bdr}`,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 14px',fontSize:16,color:C.mute,fontWeight:700}}>0</div>
           <h3 style={{color:C.white,margin:'0 0 8px'}}>No personnel added yet</h3>
-          <p style={{color:C.dim,margin:'0 0 22px'}}>Start by adding your first team member.</p>
+          <p style={{color:C.dim,margin:'0 0 22px'}}>Add personnel individually using the form, or download the CSV template and bulk-import multiple people at once.</p>
           <Btn onClick={onAdd}>+ Add First Person</Btn>
         </Card>
       ):(
@@ -394,14 +601,14 @@ const RosterView=({contractor,allP,onAdd})=>{
           <div style={{overflowX:'auto'}}>
             <table style={{width:'100%',borderCollapse:'collapse',minWidth:720}}>
               <thead><tr style={{borderBottom:`1px solid ${C.bdr}`,background:C.surf}}>
-                {['Name','Trade','Start','End','12 Basic Plus','SWP Expiry','NASU Expiry','Status'].map(h=>(
+                {['Name','Trade','Start','End','12 Basic Plus','SWP Expiry','NASU Expiry','Status','',''].map(h=>(
                   <th key={h} style={{padding:'11px 14px',textAlign:'left',fontSize:10,fontWeight:700,color:C.mute,letterSpacing:'0.8px',textTransform:'uppercase',whiteSpace:'nowrap'}}>{h}</th>
                 ))}
               </tr></thead>
               <tbody>
                 {mine.map((p,i)=>{
                   const st=personStatus(p);
-                  return (<tr key={p.id||i} style={{borderBottom:`1px solid ${C.bdr}33`}}>
+                  return (<tr key={p.id||i} onClick={()=>onEdit(p)} style={{borderBottom:`1px solid ${C.bdr}33`,cursor:'pointer',transition:'background .15s'}} onMouseEnter={e=>e.currentTarget.style.background=C.cardH} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
                     <td style={{padding:'12px 14px'}}><span style={{fontWeight:700,color:C.white,fontSize:13}}>{p.fn} {p.ln}</span></td>
                     <td style={{padding:'12px 14px',fontSize:12,color:C.dim,whiteSpace:'nowrap'}}>{p.trade}</td>
                     <td style={{padding:'12px 14px',fontSize:11,color:C.mute,whiteSpace:'nowrap'}}>{fmtDate(p.start)}</td>
@@ -410,13 +617,15 @@ const RosterView=({contractor,allP,onAdd})=>{
                     <td style={{padding:'12px 14px',fontSize:11,color:!p.swp?C.err:C.dim,whiteSpace:'nowrap'}}>{fmtDate(p.swp)}</td>
                     <td style={{padding:'12px 14px',fontSize:11,color:C.dim,whiteSpace:'nowrap'}}>{fmtDate(p.nasu)}</td>
                     <td style={{padding:'12px 14px'}}><Badge status={st}/></td>
+                    <td style={{padding:'12px 14px'}}><span style={{fontSize:11,color:C.orange,fontWeight:600,cursor:'pointer'}}>Edit</span></td>
+                    <td style={{padding:'12px 14px'}}>{st!=='Accepted'&&<button onClick={(e)=>{e.stopPropagation();if(confirm('Delete '+p.fn+' '+p.ln+'?'))onDelete(p);}} style={{padding:'2px 8px',fontSize:10,borderRadius:4,border:'1px solid #EF4444',background:'transparent',color:'#EF4444',cursor:'pointer'}}>Delete</button>}</td>
                   </tr>);
                 })}
               </tbody>
             </table>
           </div>
           <div style={{padding:'12px 16px',borderTop:`1px solid ${C.bdr}`,display:'flex',justifyContent:'flex-end'}}>
-            <Btn v="ghost" sm>⬇ Export CSV</Btn>
+            <Btn v="ghost" sm>Export CSV</Btn>
           </div>
         </Card>
       )}
@@ -425,7 +634,8 @@ const RosterView=({contractor,allP,onAdd})=>{
 };
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
-const Dashboard=({allP})=>{
+const Dashboard=({allP,tarEndStr,setTarEndStr,onApproveTrade,onAccept,onDelete,trades})=>{
+  const needsTradeApproval=(p)=>{if(p.tradeApproval==='Approved')return false;const std=(trades||DEFAULT_TRADES).filter(t=>t!=='Other \u2014 Pending Approval');return !std.includes(p.trade)&&p.trade!=='';};
   const [tab,setTab]=useState('overview');
   const [search,setSearch]=useState('');
   const [filterCon,setFilterCon]=useState('');
@@ -444,7 +654,7 @@ const Dashboard=({allP})=>{
     enriched.forEach(p=>{const c=p.con||p.contractor||'Unknown';if(!m[c])m[c]={total:0,ready:0,issues:0};m[c].total++;if(p.status==='Ready')m[c].ready++;else m[c].issues++;});
     return Object.entries(m).sort((a,b)=>b[1].total-a[1].total);
   },[enriched]);
-  const sc=useMemo(()=>{const m={'Ready':0,'Expiring Soon':0,'Expired Training':0,'Missing Docs':0};enriched.forEach(p=>{if(m[p.status]!==undefined)m[p.status]++;});return m;},[enriched]);
+  const sc=useMemo(()=>{const m={'Accepted':0,'Pending Acceptance':0,'Expiring Soon':0,'Expired Training':0,'Missing Docs':0};enriched.forEach(p=>{if(m[p.status]!==undefined)m[p.status]++;});return m;},[enriched]);
   const docsOk=enriched.filter(p=>p.photoID&&p.training&&p.hse&&(p.ct!=='Qualification'||p.compDoc)).length;
 
   return (
@@ -454,24 +664,40 @@ const Dashboard=({allP})=>{
         <p style={{margin:0,fontSize:12,color:C.mute}}>TAR2026 · Freeport ASU 3 · Real-time mobilization overview</p>
       </div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:14,marginBottom:18}}>
-        <StatCard label="Total Personnel" val={enriched.length} color={C.blue} icon="👥"/>
-        <StatCard label="Ready" val={sc['Ready']} color={C.ok} icon="✅"/>
-        <StatCard label="Expiring Soon" val={sc['Expiring Soon']} color={C.warn} icon="⏰"/>
-        <StatCard label="Docs Complete" val={docsOk} color={C.blue} icon="📁"/>
+        <StatCard label="Total Personnel" val={enriched.length} color={C.blue}/>
+        <StatCard label="Accepted" val={sc['Accepted']} color={C.ok}/>
+        <StatCard label="Pending" val={sc['Pending Acceptance']} color={'#2563EB'}/>
+        <StatCard label="Expiring Soon" val={sc['Expiring Soon']} color={C.warn}/>
+        <StatCard label="Docs Complete" val={docsOk} color={C.blue}/>
       </div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,marginBottom:24}}>
         <div style={{background:'#FEF2F2',border:`1px solid ${C.err}`,borderRadius:12,padding:'16px 20px',display:'flex',alignItems:'center',gap:16}}>
-          <span style={{fontSize:28}}>🚨</span>
+          
           <div><div style={{fontSize:24,fontWeight:900,color:C.err}}>{sc['Expired Training']}</div><div style={{fontSize:11,color:'#DC2626',textTransform:'uppercase',letterSpacing:'0.5px'}}>Expired Training</div></div>
         </div>
         <div style={{background:'#FFFBEB',border:`1px solid ${C.warn}`,borderRadius:12,padding:'16px 20px',display:'flex',alignItems:'center',gap:16}}>
-          <span style={{fontSize:28}}>⚠️</span>
+          
           <div><div style={{fontSize:24,fontWeight:900,color:C.warn}}>{sc['Missing Docs']}</div><div style={{fontSize:11,color:'#D97706',textTransform:'uppercase',letterSpacing:'0.5px'}}>Missing Documents</div></div>
         </div>
+        {enriched.filter(needsTradeApproval).length>0&&<div style={{background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:8,padding:'12px 16px',marginTop:14}}>
+          <div style={{fontSize:12,fontWeight:700,color:'#92400E',marginBottom:6}}>Trades Pending Approval</div>
+          {enriched.filter(needsTradeApproval).map((p,i)=>(
+            <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:i>0?'1px solid #FDE68A':'none',fontSize:12}}>
+              <span style={{color:C.text}}><strong>{p.fn} {p.ln}</strong> ({p.con||p.contractor}) — <em>{p.tradeOther||p.trade||'No trade specified'}</em></span>
+              <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                <button onClick={()=>onApproveTrade(p,p.tradeOther||p.trade,'custom')} style={{padding:'4px 10px',fontSize:11,borderRadius:4,border:'1px solid #059669',background:'#ECFDF5',color:'#059669',cursor:'pointer',fontWeight:600,whiteSpace:'nowrap'}}>Approve</button>
+                <select onChange={e=>{if(e.target.value)onApproveTrade(p,e.target.value,'existing');}} style={{padding:'4px 8px',fontSize:11,borderRadius:4,border:'1px solid #D97706',background:'#fff',color:C.text,cursor:'pointer'}}>
+                  <option value="">Reassign to...</option>
+                  {(trades||DEFAULT_TRADES).filter(t=>t!=='Other \u2014 Pending Approval').map(t=><option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+            </div>
+          ))}
+        </div>}
       </div>
       <div style={{display:'flex',gap:4,marginBottom:18,borderBottom:`1px solid ${C.bdr}`}}>
-        {[['overview','📊 Overview'],['personnel','👥 All Personnel']].map(([t,label])=>(
-          <button key={t} onClick={()=>setTab(t)} style={{padding:'9px 18px',background:'transparent',border:'none',borderBottom:`2px solid ${tab===t?C.orange:'transparent'}`,color:tab===t?C.orange:C.mute,cursor:'pointer',fontWeight:700,fontSize:13,transition:'all .2s',marginBottom:-1}}>{label}</button>
+        {[['overview','Overview'],['personnel','All Personnel'],['settings','Project Settings']].map(([t,label])=>(
+          <button key={t} onClick={()=>setTab(t)} style={{padding:'8px 20px',background:tab===t?'#1A2B4A':'transparent',border:`1px solid ${tab===t?'#1A2B4A':C.bdr}`,borderRadius:20,color:tab===t?'#fff':C.mute,cursor:'pointer',fontWeight:600,fontSize:13,transition:'all .2s',marginRight:6}}>{label}</button>
         ))}
       </div>
       {tab==='overview'&&(
@@ -502,7 +728,7 @@ const Dashboard=({allP})=>{
               <option value="">All Contractors</option>{uniqCon.map(c=><option key={c} value={c}>{c}</option>)}
             </select>
             <select value={filterSt} onChange={e=>setFilterSt(e.target.value)} style={ss({minWidth:150,padding:'9px 13px',color:filterSt?C.text:C.mute})}>
-              <option value="">All Statuses</option>{['Ready','Expiring Soon','Expired Training','Missing Docs'].map(s=><option key={s} value={s}>{s}</option>)}
+              <option value="">All Statuses</option>{['Accepted','Pending Acceptance','Expiring Soon','Expired Training','Missing Docs'].map(s=><option key={s} value={s}>{s}</option>)}
             </select>
             <div style={{padding:'9px 13px',fontSize:12,color:C.mute,display:'flex',alignItems:'center',whiteSpace:'nowrap'}}>{filtered.length}/{enriched.length}</div>
           </div>
@@ -510,13 +736,13 @@ const Dashboard=({allP})=>{
             <div style={{overflowX:'auto'}}>
               <table style={{width:'100%',borderCollapse:'collapse',minWidth:920}}>
                 <thead><tr style={{borderBottom:`1px solid ${C.bdr}`,background:C.surf}}>
-                  {['#','Name','Contractor','Trade','Badge','Shift','Start','End','12BP Exp','SWP Exp','NASU Exp','Docs','Status'].map(h=>(
+                  {['#','Name','Contractor','Trade','Badge','Shift','Start','End','12BP Exp','SWP Exp','NASU Exp','Docs','Status','Action',''].map(h=>(
                     <th key={h} style={{padding:'10px 12px',textAlign:'left',fontSize:9,fontWeight:700,color:C.mute,letterSpacing:'0.8px',textTransform:'uppercase',whiteSpace:'nowrap'}}>{h}</th>
                   ))}
                 </tr></thead>
                 <tbody>
                   {filtered.map((p,i)=>{
-                    const allDocs=[p.photoID,p.training,p.hse,(p.ct!=='Qualification'||p.compDoc)].every(Boolean);
+                    const allDocs=[p.photoID,(p.training||(p.bpDoc&&p.swpDoc&&p.nasuDoc)),p.hse,(p.ct!=='Qualification'||p.compDoc)].every(Boolean);
                     return (<tr key={p.id||i} style={{borderBottom:`1px solid ${C.bdr}22`}}>
                       <td style={{padding:'10px 12px',fontSize:11,color:C.mute}}>{p.no||i+1}</td>
                       <td style={{padding:'10px 12px',whiteSpace:'nowrap'}}><span style={{fontWeight:700,color:C.white,fontSize:12}}>{p.fn} {p.ln}</span></td>
@@ -531,6 +757,8 @@ const Dashboard=({allP})=>{
                       <td style={{padding:'10px 12px',fontSize:10,color:C.dim,whiteSpace:'nowrap'}}>{fmtDate(p.nasu)}</td>
                       <td style={{padding:'10px 12px',fontSize:11}}><span style={{color:allDocs?C.ok:C.err}}>{allDocs?'✓':'⚠ Missing'}</span></td>
                       <td style={{padding:'10px 12px'}}><Badge status={p.status}/></td>
+                    <td style={{padding:'10px 12px'}}>{(p.trade==='Other — Pending Approval'||p.trade===''&&p.tradeOther)?<span style={{fontSize:11,color:C.orange,fontWeight:600,cursor:'pointer'}}>Approve Trade</span>:'—'}</td>
+                    <td style={{padding:'10px 12px'}}><button onClick={()=>onDelete(p)} style={{padding:'3px 8px',fontSize:10,borderRadius:4,border:'1px solid #EF4444',background:'transparent',color:'#EF4444',cursor:'pointer'}}>Delete</button></td>
                     </tr>);
                   })}
                 </tbody>
@@ -538,10 +766,19 @@ const Dashboard=({allP})=>{
             </div>
           </Card>
           <div style={{marginTop:12,display:'flex',gap:10,justifyContent:'flex-end'}}>
-            <Btn v="ghost" sm>⬇ Export CSV</Btn>
-            <Btn v="outline" sm>📊 Export to Sheets</Btn>
+            <Btn v="ghost" sm>Export CSV</Btn>
+            <Btn v="outline" sm>Export to Sheets</Btn>
           </div>
         </>
+      )}
+      {tab==='settings'&&(
+        <Card>
+          <h3 style={{margin:'0 0 18px',fontSize:17,fontWeight:800,color:C.text}}>Project Settings</h3>
+          <Fld label="Turnaround End Date" req hint="All contractor training must be valid through this date. Personnel with training expiring before this date will be blocked from submission.">
+            <Inp type="date" val={tarEndStr} set={setTarEndStr}/>
+          </Fld>
+          <div style={{padding:'10px 14px',borderRadius:8,background:'#EBF5FF',border:'1px solid #4BA3C7',fontSize:12,color:C.text}}>Currently set to <strong>{new Date(tarEndStr).toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'})}</strong>. Contractors will not be able to submit personnel with any training expiry date before this date.</div>
+        </Card>
       )}
     </div>
   );
@@ -553,58 +790,122 @@ export default function App(){
   const [loginTab,setLoginTab]=useState('contractor');
   const [contractor,setContractor]=useState('');
   const [showForm,setShowForm]=useState(false);
+  const [editPerson,setEditPerson]=useState(null);
   const [allP,setAllP]=useState([]);
-  const [loading,setLoading]=useState(false);
+  const [trades,setTrades]=useState(()=>{try{const custom=JSON.parse(localStorage.getItem('customTrades')||'[]');if(custom.length){const all=[...DEFAULT_TRADES.filter(t=>t!=='Other \u2014 Pending Approval'),...custom,'Other \u2014 Pending Approval'];return[...new Set(all)].sort();}return DEFAULT_TRADES;}catch{return DEFAULT_TRADES;}});
+  const [tarEndStr,setTarEndStr]=useState(()=>localStorage.getItem('tarEndDate')||DEFAULT_TAR_END);
+  const tarEnd=new Date(tarEndStr);
+  const [loading]=useState(false);
 
   // Fetch all data from Google Sheet
-  const fetchData=useCallback(async(con)=>{
+  // Load from localStorage as primary (Sheet sync is background)
+  useEffect(()=>{
+    try{const saved=localStorage.getItem('mobPortalData');if(saved){setAllP(JSON.parse(saved));}}catch{}
+    // Also try to fetch from Sheet
+    if(SHEET_API){
+      fetch(SHEET_API).then(r=>r.json()).then(j=>{
+        if(j.rows&&j.rows.length>0){
+          const mapped=j.rows.map((row,i)=>({
+            id:i+1,no:row['No'],con:row['Contractor'],fn:row['First Name'],ln:row['Last Name'],
+            trade:row['Trade']||'',tradeOther:row['Trade (Custom)']||'',badge:row['Badge Number'],shift:row['Shift'],
+            start:cleanDate(row['Start Date']),end:cleanDate(row['Finish Date']),
+            bp:cleanDate(row['12 Basic Plus Expiry']),swp:cleanDate(row['19A AIL SWP Expiry']),nasu:cleanDate(row['19A AIL NASU Expiry']),
+            tradeApproval:row['Trade Approval']||'',
+            bpDoc:row['Training Docs']==='Yes',swpDoc:row['Training Docs']==='Yes',nasuDoc:row['Training Docs']==='Yes',
+            ct:row['Competency Type']||'',comp:row['Competency Detail']||'',
+            photoID:row['Photo ID']==='Yes',training:row['Training Docs']==='Yes',
+            hse:row['HSE Form']==='Yes',compDoc:row['Competency Doc']==='Yes'||row['Competency Docs']==='Yes',mobStatus:row['Mobilization Status']||'',accepted:row['Mobilization Status']==='Accepted',
+          }));
+          setAllP(mapped);
+          try{localStorage.setItem('mobPortalData',JSON.stringify(mapped));}catch{}
+        }
+      }).catch(()=>{});
+    }
+  },[]);
+  const fetchData=useCallback(()=>{
     if(!SHEET_API)return;
-    setLoading(true);
-    try{
-      const url=con?SHEET_API+'?contractor='+encodeURIComponent(con):SHEET_API;
-      const r=await fetch(url);
-      const j=await r.json();
-      if(j.rows){
+    fetch(SHEET_API).then(r=>r.json()).then(j=>{
+      if(j.rows&&j.rows.length>0){
         const mapped=j.rows.map((row,i)=>({
           id:i+1,no:row['No'],con:row['Contractor'],fn:row['First Name'],ln:row['Last Name'],
-          trade:row['Trade']||row['Trade (Custom)'],badge:row['Badge Number'],shift:row['Shift'],
-          start:row['Start Date'],end:row['Finish Date'],
-          bp:row['12 Basic Plus Expiry'],swp:row['19A AIL SWP Expiry'],nasu:row['19A AIL NASU Expiry'],
-          ct:row['Competency Type'],comp:row['Competency Detail'],
+          trade:row['Trade']||'',tradeOther:row['Trade (Custom)']||'',badge:row['Badge Number'],shift:row['Shift'],
+          start:cleanDate(row['Start Date']),end:cleanDate(row['Finish Date']),
+          bp:cleanDate(row['12 Basic Plus Expiry']),swp:cleanDate(row['19A AIL SWP Expiry']),nasu:cleanDate(row['19A AIL NASU Expiry']),
+          bpDoc:row['Training Docs']==='Yes',swpDoc:row['Training Docs']==='Yes',nasuDoc:row['Training Docs']==='Yes',
+          ct:row['Competency Type']||'',comp:row['Competency Detail']||'',
           photoID:row['Photo ID']==='Yes',training:row['Training Docs']==='Yes',
-          hse:row['HSE Form']==='Yes',compDoc:row['Competency Docs']==='Yes',
+          hse:row['HSE Form']==='Yes',compDoc:row['Competency Doc']==='Yes'||row['Competency Docs']==='Yes',mobStatus:row['Mobilization Status']||'',accepted:row['Mobilization Status']==='Accepted',
         }));
         setAllP(mapped);
+        try{localStorage.setItem('mobPortalData',JSON.stringify(mapped));}catch{}
       }
-    }catch(e){console.error('Fetch error:',e);}
-    finally{setLoading(false);}
+    }).catch(()=>{});
   },[]);
 
-  useEffect(()=>{fetchData();},[fetchData]);
-
   // Submit to Google Sheet
-  const submitToSheet=async(record)=>{
-    if(!SHEET_API){setAllP(p=>[...p,record]);return;}
+  const uploadFile=async(fileInfo,con,fn,ln)=>{
+    if(!UPLOAD_API||!fileInfo||!fileInfo.fileData)return null;
     try{
-      await fetch(SHEET_API,{method:'POST',body:JSON.stringify(record),headers:{'Content-Type':'text/plain'}});
-      fetchData(contractor);
-    }catch(e){console.error('Submit error:',e);setAllP(p=>[...p,record]);}
+      const b64=fileInfo.fileData;
+      const chunkSize=4000; // Keep URL under browser limits
+      const sessionId=Date.now()+'_'+Math.random().toString(36).substr(2,6);
+      const totalChunks=Math.ceil(b64.length/chunkSize);
+      // Step 1: Start session
+      const meta=encodeURIComponent(JSON.stringify({contractor:con,fn,ln,fileName:fileInfo.fileName,mimeType:fileInfo.mimeType,sessionId,totalChunks}));
+      const startResp=await fetch(UPLOAD_API+'?action=uploadStart&data='+meta);
+      // Step 2: Send chunks sequentially
+      for(let i=0;i<totalChunks;i++){
+        const chunk=b64.substring(i*chunkSize,(i+1)*chunkSize);
+        const chunkData=encodeURIComponent(JSON.stringify({sessionId,chunk:i,data:chunk}));
+        await fetch(UPLOAD_API+'?action=uploadChunk&data='+chunkData);
+      }
+      // Step 3: Finalize
+      const endResp=await fetch(UPLOAD_API+'?action=uploadEnd&data='+encodeURIComponent(JSON.stringify({sessionId})));
+      try{const result=await endResp.json();if(result.success)return result.file;if(result.error)alert('Upload error: '+result.error);}catch{}
+      return {fileName:fileInfo.fileName};
+    }catch(e){alert('Upload error: '+e.message);return null;}
+  };
+
+  const submitToSheet=async(record)=>{
+    setAllP(p=>{
+      const recCon=record.con||record.contractor||'';
+      const matchKey=x=>{
+        const xCon=x.con||x.contractor||'';
+        return String(x.fn).trim()===String(record.fn).trim()&&String(x.ln).trim()===String(record.ln).trim()&&String(xCon).trim()===String(recCon).trim();
+      };
+      let next;
+      const idx=p.findIndex(matchKey);
+      if(idx>=0){
+        next=p.map((x,i)=>i===idx?{...record,id:x.id}:x);
+      }else{
+        next=[...p,{...record,id:Date.now()}];
+      }
+      try{localStorage.setItem('mobPortalData',JSON.stringify(next));}catch{}
+      return next;
+    });
+    if(!SHEET_API)return;
+    try{
+      const data=encodeURIComponent(JSON.stringify(record));
+      await fetch(SHEET_API+'?action=submit&data='+data);
+      setTimeout(()=>fetchData(),2000);
+    }catch(e){console.error('Submit error:',e);}
   };
   const goHome=()=>{setScreen('landing');setContractor('');setShowForm(false);};
   const goBack=()=>{
-    if(showForm){setShowForm(false);return;}
+    if(showForm){setShowForm(false);setEditPerson(null);return;}
     if(screen==='contractor'){setScreen('login');setLoginTab('contractor');return;}
     setScreen('landing');
   };
   return (
-    <div style={{background:C.bg,minHeight:'100vh',color:C.text,fontFamily:"'Segoe UI',system-ui,-apple-system,sans-serif"}}>
+    <div style={{background:C.bg,minHeight:'100vh',color:C.text,fontFamily:"'Inter',-apple-system,'Segoe UI',system-ui,sans-serif"}}>
       <Header screen={screen} contractor={screen==='contractor'?contractor:null} onBack={goBack} onHome={goHome}/>
       {screen==='landing'&&<Landing goContractor={()=>{setLoginTab('contractor');setScreen('login');}} goMgmt={()=>{setLoginTab('mgmt');setScreen('login');}}/>}
-      {screen==='login'&&<Login defaultTab={loginTab} onContractorLogin={con=>{setContractor(con);setScreen('contractor');setShowForm(false);}} onMgmtLogin={()=>setScreen('dashboard')}/>}
+      {screen==='login'&&<Login defaultTab={loginTab} onContractorLogin={con=>{setContractor(con);setScreen('contractor');setShowForm(false);fetchData();}} onMgmtLogin={()=>{setScreen('dashboard');fetchData();}}/>}
       {loading&&<div style={{textAlign:'center',padding:'40px',color:C.mute,fontSize:14}}>Loading data...</div>}
-      {!loading&&screen==='contractor'&&!showForm&&<RosterView contractor={contractor} allP={allP} onAdd={()=>setShowForm(true)}/>}
-      {!loading&&screen==='contractor'&&showForm&&<Form contractor={contractor} onSubmit={rec=>submitToSheet({...rec,con:contractor})} onRoster={()=>setShowForm(false)}/>}
-      {!loading&&screen==='dashboard'&&<Dashboard allP={allP}/>}
+      {!loading&&screen==='contractor'&&!showForm&&<RosterView contractor={contractor} allP={allP} onAdd={()=>setShowForm(true)} onEdit={p=>{setEditPerson(p);setShowForm(true);}} onBulkAdd={rec=>submitToSheet({...rec,con:contractor})} onDelete={async(p)=>{if(!confirm('Delete '+p.fn+' '+p.ln+'?'))return;const data=encodeURIComponent(JSON.stringify({con:p.con||p.contractor||contractor,fn:p.fn,ln:p.ln}));await fetch(SHEET_API+'?action=delete&data='+data);setAllP(prev=>{const next=prev.filter(x=>!(x.fn===p.fn&&x.ln===p.ln&&(x.con||x.contractor)===(p.con||p.contractor||contractor)));try{localStorage.setItem('mobPortalData',JSON.stringify(next));}catch{}return next;});fetchData();}}/>}
+      {!loading&&screen==='contractor'&&showForm&&<Form contractor={contractor} tarEnd={tarEnd} trades={trades} editData={editPerson} uploadFile={uploadFile} onSubmit={rec=>{submitToSheet({...rec,con:contractor});setEditPerson(null);}} onRoster={()=>{setShowForm(false);setEditPerson(null);}}/>}
+      {!loading&&screen==='dashboard'&&<Dashboard allP={allP} trades={trades} onAccept={async(person)=>{const rec={...person,mobStatus:'Accepted',accepted:true,con:person.con||person.contractor};const data=encodeURIComponent(JSON.stringify(rec));await fetch(SHEET_API+'?action=submit&data='+data);fetchData();}} onDelete={async(person)=>{if(!confirm('Delete '+person.fn+' '+person.ln+'?'))return;const data=encodeURIComponent(JSON.stringify({action:'delete',con:person.con||person.contractor,fn:person.fn,ln:person.ln}));await fetch(SHEET_API+'?action=delete&data='+data);setAllP(p=>p.filter(x=>!(x.fn===person.fn&&x.ln===person.ln&&(x.con||x.contractor)===(person.con||person.contractor))));try{localStorage.setItem('mobPortalData',JSON.stringify(allP.filter(x=>!(x.fn===person.fn&&x.ln===person.ln&&(x.con||x.contractor)===(person.con||person.contractor)))));}catch{}fetchData();}} onApproveTrade={async(person,newTrade,type)=>{const rec={...person,trade:newTrade,tradeOther:'',tradeApproval:'Approved',con:person.con||person.contractor};const data=encodeURIComponent(JSON.stringify(rec));await fetch(SHEET_API+'?action=submit&data='+data);if(type==='custom'&&!trades.includes(newTrade)){setTrades(prev=>[...prev.filter(t=>t!=='Other \u2014 Pending Approval'),newTrade,'Other \u2014 Pending Approval'].sort());try{localStorage.setItem('customTrades',JSON.stringify([...new Set([...(JSON.parse(localStorage.getItem('customTrades')||'[]')),newTrade])]));}catch{}}fetchData();}} tarEndStr={tarEndStr} setTarEndStr={v=>{setTarEndStr(v);localStorage.setItem('tarEndDate',v);}}/>}
+      <div style={{position:'fixed',bottom:10,right:20,fontSize:10,color:'#B0B8C4',letterSpacing:'0.5px',zIndex:999}}>v2.38</div>
     </div>
   );
 }

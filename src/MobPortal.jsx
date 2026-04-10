@@ -76,6 +76,7 @@ const C={
 const SC={
   'Accepted':          {bg:'#ECFDF5',tx:'#059669',bd:'#A7F3D0'},
   'Pending Acceptance':{bg:'#EFF6FF',tx:'#2563EB',bd:'#BFDBFE'},
+  'Ready':             {bg:'#F0FDF4',tx:'#16A34A',bd:'#BBF7D0'},
   'Expiring Soon':     {bg:'#FFFBEB',tx:'#D97706',bd:'#FDE68A'},
   'Expired Training':  {bg:'#FEF2F2',tx:'#DC2626',bd:'#FECACA'},
   'Missing Docs':      {bg:'#FEF2F2',tx:'#DC2626',bd:'#FECACA'},
@@ -267,10 +268,11 @@ const Login=({defaultTab='contractor',onContractorLogin,onMgmtLogin})=>{
 
 // ─── FORM ─────────────────────────────────────────────────────────────────────
 const STEPS=['Personal Info','Safety Training','Competency','Job-Specific','Documents'];
-const EMPTY={fn:'',ln:'',trade:'',tradeOther:'',start:'',end:'',photoID:false,bp:'',bpDoc:false,swp:'',swpDoc:false,nasu:'',nasuDoc:false,training:false,ct:'',comp:'',compDoc:false,jstCS:false,jstCSDoc:false,jstWH:false,jstWHDoc:false,jstCrane:false,jstCraneDoc:false,jstScaff:false,jstScaffDoc:false,jstOther:false,jstOtherDoc:false,jstOtherDesc:'',jstDocs:false,hse:false};
+const EMPTY={fn:'',ln:'',mobile:'',trade:'',tradeOther:'',start:'',end:'',photoID:false,bp:'',bpDoc:false,swp:'',swpDoc:false,nasu:'',nasuDoc:false,training:false,ct:'',comp:'',compDoc:false,jstCS:false,jstCSDoc:false,jstWH:false,jstWHDoc:false,jstCrane:false,jstCraneDoc:false,jstScaff:false,jstScaffDoc:false,jstOther:false,jstOtherDoc:false,jstOtherDesc:'',jstDocs:false,hse:false};
 
-const Form=({contractor,tarEnd,onSubmit,onRoster,editData,uploadFile,trades})=>{
-  const [step,setStep]=useState(1);
+const Form=({contractor,tarEnd,onSubmit,onRoster,editData,uploadFile,trades,formStep:externalStep,setFormStep:setExternalStep})=>{
+  const [step,setStep]=useState(externalStep||1);
+  const updateStep=(v)=>{const newStep=typeof v==='function'?v(step):v;setStep(newStep);if(setExternalStep)setExternalStep(newStep);};
   const doUpload=(fieldKey,fileInfo)=>{
     s(fieldKey,true);
     if(uploadFile&&fileInfo&&fileInfo.fileData){
@@ -295,7 +297,7 @@ const Form=({contractor,tarEnd,onSubmit,onRoster,editData,uploadFile,trades})=>{
       <h2 style={{color:C.ok,fontSize:22,fontWeight:800,margin:'0 0 12px'}}>Submitted Successfully!</h2>
       <p style={{color:C.dim,lineHeight:1.7,margin:'0 0 28px'}}><strong style={{color:C.text}}>{f.fn} {f.ln}</strong>'s mobilization record has been submitted. The Prommac team will review and assign badge/shift details.</p>
       <div style={{display:'flex',gap:12,justifyContent:'center'}}>
-        <Btn onClick={()=>{setF(EMPTY);setStep(1);setDone(false);}}>+ Add Another Person</Btn>
+        <Btn onClick={()=>{setF(EMPTY);updateStep(1);setDone(false);}}>+ Add Another Person</Btn>
         <Btn v="ghost" onClick={onRoster}>View My Roster →</Btn>
       </div>
     </div>
@@ -326,6 +328,9 @@ const Form=({contractor,tarEnd,onSubmit,onRoster,editData,uploadFile,trades})=>{
               <Fld label="First Name" req><Inp val={f.fn} set={v=>s('fn',v)} ph="John"/></Fld>
               <Fld label="Last Name" req><Inp val={f.ln} set={v=>s('ln',v)} ph="Smith"/></Fld>
             </div>
+            <Fld label="Cell Phone Number" req hint="Employee mobile/cell number for site communication">
+              <Inp val={f.mobile} set={v=>s('mobile',v)} ph="+1 (555) 123-4567" type="tel"/>
+            </Fld>
             <Fld label="Trade / Role" req><Sel val={f.trade} set={v=>s('trade',v)} opts={trades||DEFAULT_TRADES} ph="— Select trade —"/></Fld>
             {f.trade==='Other — Pending Approval'&&<><div style={{padding:'8px 12px',borderRadius:6,background:'#FFFBEB',border:'1px solid #FDE68A',fontSize:12,color:'#92400E',marginBottom:12}}>This trade is not on the approved list. It will be submitted for management approval before the person can be mobilized.</div><Fld label="Specify Trade" req><Inp val={f.tradeOther} set={v=>s('tradeOther',v)} ph="Describe the trade or role"/></Fld></>}
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
@@ -426,7 +431,7 @@ const Form=({contractor,tarEnd,onSubmit,onRoster,editData,uploadFile,trades})=>{
             </Fld>
             <Divline label="Submission Preview"/>
             <div style={{background:C.surf,borderRadius:10,padding:16,fontSize:12}}>
-              {[['Name',`${f.fn} ${f.ln}`],['Contractor',contractor],['Trade',f.trade==='Other — Pending Approval'?f.tradeOther:f.trade],['Period',`${f.start} → ${f.end}`],['Competency',`${f.ct} — ${f.comp}`],['Training Docs',f.training?'✓ Uploaded':'⚠ Missing'],['HSE Form',f.hse?'✓ Uploaded':'⚠ Missing']].map(([k,v])=>(
+              {[['Name',`${f.fn} ${f.ln}`],['Mobile',f.mobile||'—'],['Contractor',contractor],['Trade',f.trade==='Other — Pending Approval'?f.tradeOther:f.trade],['Period',`${f.start} → ${f.end}`],['Competency',`${f.ct} — ${f.comp}`],['Training Docs',f.training?'✓ Uploaded':'⚠ Missing'],['HSE Form',f.hse?'✓ Uploaded':'⚠ Missing']].map(([k,v])=>(
                 <div key={k} style={{display:'flex',gap:8,padding:'5px 0',borderBottom:`1px solid ${C.bdr}33`}}>
                   <span style={{color:C.mute,minWidth:110}}>{k}:</span>
                   <span style={{color:C.text,fontWeight:600}}>{v}</span>
@@ -436,8 +441,8 @@ const Form=({contractor,tarEnd,onSubmit,onRoster,editData,uploadFile,trades})=>{
           </>
         )}
         <div style={{display:'flex',justifyContent:'space-between',marginTop:28,paddingTop:22,borderTop:`1px solid ${C.bdr}`}}>
-          <Btn v="ghost" onClick={()=>setStep(p=>Math.max(1,p-1))} disabled={step===1}>← Previous</Btn>
-          {step<5?<Btn onClick={()=>setStep(p=>p+1)} disabled={!ok[step-1]()}>Continue →</Btn>:<Btn onClick={handleSubmit} disabled={!ok[4]()}>Submit Record</Btn>}
+          <Btn v="ghost" onClick={()=>updateStep(p=>Math.max(1,p-1))} disabled={step===1}>← Previous</Btn>
+          {step<5?<Btn onClick={()=>updateStep(p=>p+1)} disabled={!ok[step-1]()}>Continue →</Btn>:<Btn onClick={handleSubmit} disabled={!ok[4]()}>Submit Record</Btn>}
         </div>
       </Card>
     </div>
@@ -445,7 +450,7 @@ const Form=({contractor,tarEnd,onSubmit,onRoster,editData,uploadFile,trades})=>{
 };
 
 // ─── ROSTER ───────────────────────────────────────────────────────────────────
-const RosterView=({contractor,allP,onAdd,onBulkAdd,onEdit,onDelete})=>{
+const RosterView=({contractor,allP,onAdd,onBulkAdd,onEdit,onDelete,trades})=>{
   const mine=allP.filter(p=>(p.con||p.contractor)===contractor);
   const statuses=mine.map(personStatus);
   const ready=statuses.filter(s=>s==='Accepted').length;
@@ -475,62 +480,33 @@ const RosterView=({contractor,allP,onAdd,onBulkAdd,onEdit,onDelete})=>{
               '3. Trade must match an approved trade from the portal dropdown\n' +
               '4. Competency Type must be either "Experience" or "Qualification"\n' +
               '5. All training expiry dates must be valid past the turnaround end date\n' +
-              '6. Save as .xlsx or .csv when complete\n' +
-              '7. Training certificates and documents must still be uploaded individually after import\n\n' +
+              '6. Training certificates and documents must still be uploaded individually after import\n\n' +
               'Click OK to download the template.');
             if(!proceed)return;
-            // Generate Excel template with locked headers
-            const wb=XLSX.utils.book_new();
-            const tradeList=(trades||DEFAULT_TRADES).filter(t=>t!=='Other \u2014 Pending Approval');
-            const headers=['First Name','Last Name','Trade','Start Date','End Date','12 Basic Plus Expiry','19A AIL SWP Expiry','19A AIL NASU Expiry','Competency Type','Competency Detail'];
-            const wsData=[headers];
-            // Add 50 empty rows for data entry
-            for(let r=0;r<50;r++)wsData.push(['','','','','','','','','','']);
-            const ws=XLSX.utils.aoa_to_sheet(wsData);
-            ws['!cols']=headers.map(h=>({wch:Math.max(h.length+4,18)}));
-            // Add data validation for Trade column (C2:C51) and Competency Type (I2:I51)
-            if(!ws['!dataValidation'])ws['!dataValidation']=[];
-            // Note: SheetJS doesn't support data validation in writes, so add a Trades reference sheet instead
-            XLSX.utils.book_append_sheet(wb,ws,'Personnel');
-            // Add Trades reference sheet
-            const tradesData=[['Approved Trades — copy from this list into the Trade column']];
-            tradeList.forEach(t=>tradesData.push([t]));
-            tradesData.push(['']);
-            tradesData.push(['If your trade is not listed, type it in the Trade column.']);
-            tradesData.push(['It will require management approval before mobilization.']);
-            const wsTrades=XLSX.utils.aoa_to_sheet(tradesData);
-            wsTrades['!cols']=[{wch:55}];
-            XLSX.utils.book_append_sheet(wb,wsTrades,'Approved Trades');
-            // Add instructions sheet
-            const wsInst=XLSX.utils.aoa_to_sheet([
-              ['MOBILIZATION TEMPLATE — '+contractor],
-              [''],
-              ['IMPORTANT: Do not modify the column headers in the Personnel sheet.'],
-              ['The headers must remain exactly as provided for the upload to work.'],
-              [''],
-              ['DATE FORMAT: All dates must be entered as MM/DD/YYYY (e.g. 05/15/2026)'],
-              [''],
-              ['Column Guide:'],
-              ['First Name — Employee first name'],
-              ['Last Name — Employee last name'],
-              ['Trade — Job trade/role (e.g. Pipefitter, Welder, Instrument Tech)'],
-              ['Start Date — Mobilization start date (MM/DD/YYYY)'],
-              ['End Date — Mobilization end date (MM/DD/YYYY)'],
-              ['12 Basic Plus Expiry — 12-hour Basic Plus Safety Council cert expiry (MM/DD/YYYY)'],
-              ['19A AIL SWP Expiry — Air Liquide Site Work Procedure induction expiry (MM/DD/YYYY)'],
-              ['19A AIL NASU Expiry — Nederland ASU site-specific induction expiry (MM/DD/YYYY)'],
-              ['Competency Type — Either "Experience" or "Qualification"'],
-              ['Competency Detail — Description (e.g. "10 years" or "TDLR Instrument Tech")'],
-              [''],
-              ['After filling in the Personnel sheet, save and upload via the portal.'],
-              ['Training certificates and documents must still be uploaded individually after import.']
-            ]);
-            wsInst['!cols']=[{wch:80}];
-            XLSX.utils.book_append_sheet(wb,wsInst,'Instructions');
-            const wbOut=XLSX.write(wb,{type:'array',bookType:'xlsx'});
-            const blob=new Blob([wbOut],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
-            const url=URL.createObjectURL(blob);
-            const a=document.createElement('a');a.href=url;a.download=contractor.replace(/\s/g,'_')+'_mobilization_template.xlsx';a.click();URL.revokeObjectURL(url);
+            try{
+              const tradeList=DEFAULT_TRADES.filter(t=>t!=='Other \u2014 Pending Approval');
+              const wb=XLSX.utils.book_new();
+              const headers=['First Name','Last Name','Mobile','Trade','Start Date','End Date','12 Basic Plus Expiry','19A AIL SWP Expiry','19A AIL NASU Expiry','Competency Type','Competency Detail'];
+              const wsData=[headers];
+              for(let r=0;r<50;r++)wsData.push(['','','','','','','','','','']);
+              const ws=XLSX.utils.aoa_to_sheet(wsData);
+              ws['!cols']=headers.map(h=>({wch:Math.max(h.length+4,18)}));
+              XLSX.utils.book_append_sheet(wb,ws,'Personnel');
+              const tradesData=[['Approved Trades \u2014 copy from this list into the Trade column']];
+              tradeList.forEach(t=>tradesData.push([t]));
+              tradesData.push([''],['If your trade is not listed, type it in the Trade column.'],['It will require management approval before mobilization.']);
+              const wsTrades=XLSX.utils.aoa_to_sheet(tradesData);
+              wsTrades['!cols']=[{wch:55}];
+              XLSX.utils.book_append_sheet(wb,wsTrades,'Approved Trades');
+              const instData=[['MOBILIZATION TEMPLATE \u2014 '+contractor],[''],['IMPORTANT: Do not modify the column headers in the Personnel sheet.'],[''],['DATE FORMAT: All dates must be MM/DD/YYYY (e.g. 05/15/2026)'],[''],['Competency Type must be either "Experience" or "Qualification"'],[''],['After filling in the Personnel sheet, save and upload via the portal Bulk Upload button.'],['Training certificates and documents must still be uploaded individually after import.']];
+              const wsInst=XLSX.utils.aoa_to_sheet(instData);
+              wsInst['!cols']=[{wch:70}];
+              XLSX.utils.book_append_sheet(wb,wsInst,'Instructions');
+              const wbOut=XLSX.write(wb,{type:'array',bookType:'xlsx'});
+              const blob=new Blob([wbOut],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+              const url=URL.createObjectURL(blob);
+              const a=document.createElement('a');a.href=url;a.download=contractor.replace(/\s/g,'_')+'_mobilization_template.xlsx';document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+            }catch(err){alert('Error generating template: '+err.message+'. Please contact Prommac for the template file.');}
           }}>Download Template (.xlsx)</Btn>
           <Btn v="outline" onClick={()=>{
             const inp=document.createElement('input');
@@ -550,7 +526,7 @@ const RosterView=({contractor,allP,onAdd,onBulkAdd,onEdit,onDelete})=>{
                     let count=0;
                     rows.forEach((row,i)=>{
                       const fn=String(row['First Name']||'').trim();if(!fn)return;
-                      const rec={id:Date.now()+i,con:contractor,fn,ln:String(row['Last Name']||'').trim(),trade:String(row['Trade']||'').trim(),start:cleanDate(row['Start Date']),end:cleanDate(row['End Date']||row['Finish Date']),bp:cleanDate(row['12 Basic Plus Expiry']),swp:cleanDate(row['19A AIL SWP Expiry']),nasu:cleanDate(row['19A AIL NASU Expiry']),ct:String(row['Competency Type']||'Experience').trim(),comp:String(row['Competency Detail']||'').trim(),photoID:false,training:false,hse:false,compDoc:false};
+                      const rec={id:Date.now()+i,con:contractor,fn,ln:String(row['Last Name']||'').trim(),mobile:String(row['Mobile']||'').trim(),trade:String(row['Trade']||'').trim(),start:cleanDate(row['Start Date']),end:cleanDate(row['End Date']||row['Finish Date']),bp:cleanDate(row['12 Basic Plus Expiry']),swp:cleanDate(row['19A AIL SWP Expiry']),nasu:cleanDate(row['19A AIL NASU Expiry']),ct:String(row['Competency Type']||'Experience').trim(),comp:String(row['Competency Detail']||'').trim(),photoID:false,training:false,hse:false,compDoc:false};
                       onBulkAdd(rec);count++;
                     });
                     alert(count+' personnel imported successfully. Training certificates and documents must still be uploaded individually.');
@@ -570,7 +546,7 @@ const RosterView=({contractor,allP,onAdd,onBulkAdd,onEdit,onDelete})=>{
                       if(vals.length<2)continue;
                       const row={};hdrs.forEach((h,j)=>row[h]=vals[j]||'');
                       if(!row['First Name'])continue;
-                      const rec={id:Date.now()+i,con:contractor,fn:row['First Name']||'',ln:row['Last Name']||'',trade:row['Trade']||'',start:cleanDate(row['Start Date']),end:cleanDate(row['End Date']||row['Finish Date']),bp:cleanDate(row['12 Basic Plus Expiry']),swp:cleanDate(row['19A AIL SWP Expiry']),nasu:cleanDate(row['19A AIL NASU Expiry']),ct:row['Competency Type']||'Experience',comp:row['Competency Detail']||'',photoID:false,training:false,hse:false,compDoc:false};
+                      const rec={id:Date.now()+i,con:contractor,fn:row['First Name']||'',ln:row['Last Name']||'',mobile:row['Mobile']||row['Badge Number']||'',trade:row['Trade']||'',start:cleanDate(row['Start Date']),end:cleanDate(row['End Date']||row['Finish Date']),bp:cleanDate(row['12 Basic Plus Expiry']),swp:cleanDate(row['19A AIL SWP Expiry']),nasu:cleanDate(row['19A AIL NASU Expiry']),ct:row['Competency Type']||'Experience',comp:row['Competency Detail']||'',photoID:false,training:false,hse:false,compDoc:false};
                       onBulkAdd(rec);count++;
                     }
                     alert(count+' personnel imported successfully. Training certificates and documents must still be uploaded individually.');
@@ -635,7 +611,7 @@ const RosterView=({contractor,allP,onAdd,onBulkAdd,onEdit,onDelete})=>{
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
 const Dashboard=({allP,tarEndStr,setTarEndStr,onApproveTrade,onAccept,onDelete,trades})=>{
-  const needsTradeApproval=(p)=>{if(p.tradeApproval==='Approved')return false;const std=(trades||DEFAULT_TRADES).filter(t=>t!=='Other \u2014 Pending Approval');return !std.includes(p.trade)&&p.trade!=='';};
+  const needsTradeApproval=(p)=>{if(p.accepted||p.mobStatus==='Accepted')return false;const std=(trades||DEFAULT_TRADES).filter(t=>t!=='Other \u2014 Pending Approval');return !std.includes(p.trade)&&p.trade!=='';};
   const [tab,setTab]=useState('overview');
   const [search,setSearch]=useState('');
   const [filterCon,setFilterCon]=useState('');
@@ -654,7 +630,7 @@ const Dashboard=({allP,tarEndStr,setTarEndStr,onApproveTrade,onAccept,onDelete,t
     enriched.forEach(p=>{const c=p.con||p.contractor||'Unknown';if(!m[c])m[c]={total:0,ready:0,issues:0};m[c].total++;if(p.status==='Ready')m[c].ready++;else m[c].issues++;});
     return Object.entries(m).sort((a,b)=>b[1].total-a[1].total);
   },[enriched]);
-  const sc=useMemo(()=>{const m={'Accepted':0,'Pending Acceptance':0,'Expiring Soon':0,'Expired Training':0,'Missing Docs':0};enriched.forEach(p=>{if(m[p.status]!==undefined)m[p.status]++;});return m;},[enriched]);
+  const sc=useMemo(()=>{const m={'Accepted':0,'Pending Acceptance':0,'Ready':0,'Expiring Soon':0,'Expired Training':0,'Missing Docs':0};enriched.forEach(p=>{if(m[p.status]!==undefined)m[p.status]++;});return m;},[enriched]);
   const docsOk=enriched.filter(p=>p.photoID&&p.training&&p.hse&&(p.ct!=='Qualification'||p.compDoc)).length;
 
   return (
@@ -728,7 +704,7 @@ const Dashboard=({allP,tarEndStr,setTarEndStr,onApproveTrade,onAccept,onDelete,t
               <option value="">All Contractors</option>{uniqCon.map(c=><option key={c} value={c}>{c}</option>)}
             </select>
             <select value={filterSt} onChange={e=>setFilterSt(e.target.value)} style={ss({minWidth:150,padding:'9px 13px',color:filterSt?C.text:C.mute})}>
-              <option value="">All Statuses</option>{['Accepted','Pending Acceptance','Expiring Soon','Expired Training','Missing Docs'].map(s=><option key={s} value={s}>{s}</option>)}
+              <option value="">All Statuses</option>{['Accepted','Pending Acceptance','Ready','Expiring Soon','Expired Training','Missing Docs'].map(s=><option key={s} value={s}>{s}</option>)}
             </select>
             <div style={{padding:'9px 13px',fontSize:12,color:C.mute,display:'flex',alignItems:'center',whiteSpace:'nowrap'}}>{filtered.length}/{enriched.length}</div>
           </div>
@@ -811,10 +787,9 @@ export default function App(){
         if(j.rows&&j.rows.length>0){
           const mapped=j.rows.map((row,i)=>({
             id:i+1,no:row['No'],con:row['Contractor'],fn:row['First Name'],ln:row['Last Name'],
-            trade:row['Trade']||'',tradeOther:row['Trade (Custom)']||'',badge:row['Badge Number'],shift:row['Shift'],
+            trade:row['Trade']||'',badge:row['Badge Number']||'',mobile:row['Mobile']||'',
             start:cleanDate(row['Start Date']),end:cleanDate(row['Finish Date']),
             bp:cleanDate(row['12 Basic Plus Expiry']),swp:cleanDate(row['19A AIL SWP Expiry']),nasu:cleanDate(row['19A AIL NASU Expiry']),
-            tradeApproval:row['Trade Approval']||'',
             bpDoc:row['Training Docs']==='Yes',swpDoc:row['Training Docs']==='Yes',nasuDoc:row['Training Docs']==='Yes',
             ct:row['Competency Type']||'',comp:row['Competency Detail']||'',
             photoID:row['Photo ID']==='Yes',training:row['Training Docs']==='Yes',
@@ -832,7 +807,7 @@ export default function App(){
       if(j.rows&&j.rows.length>0){
         const mapped=j.rows.map((row,i)=>({
           id:i+1,no:row['No'],con:row['Contractor'],fn:row['First Name'],ln:row['Last Name'],
-          trade:row['Trade']||'',tradeOther:row['Trade (Custom)']||'',badge:row['Badge Number'],shift:row['Shift'],
+          trade:row['Trade']||'',tradeOther:row['Trade (Custom)']||'',mobile:row['Mobile']||'',badge:row['Badge Number'],shift:row['Shift'],
           start:cleanDate(row['Start Date']),end:cleanDate(row['Finish Date']),
           bp:cleanDate(row['12 Basic Plus Expiry']),swp:cleanDate(row['19A AIL SWP Expiry']),nasu:cleanDate(row['19A AIL NASU Expiry']),
           bpDoc:row['Training Docs']==='Yes',swpDoc:row['Training Docs']==='Yes',nasuDoc:row['Training Docs']==='Yes',
@@ -851,7 +826,7 @@ export default function App(){
     if(!UPLOAD_API||!fileInfo||!fileInfo.fileData)return null;
     try{
       const b64=fileInfo.fileData;
-      const chunkSize=4000; // Keep URL under browser limits
+      const chunkSize=6000; // Keep URL under browser limits
       const sessionId=Date.now()+'_'+Math.random().toString(36).substr(2,6);
       const totalChunks=Math.ceil(b64.length/chunkSize);
       // Step 1: Start session
@@ -863,11 +838,19 @@ export default function App(){
         const chunkData=encodeURIComponent(JSON.stringify({sessionId,chunk:i,data:chunk}));
         await fetch(UPLOAD_API+'?action=uploadChunk&data='+chunkData);
       }
-      // Step 3: Finalize
-      const endResp=await fetch(UPLOAD_API+'?action=uploadEnd&data='+encodeURIComponent(JSON.stringify({sessionId})));
-      try{const result=await endResp.json();if(result.success)return result.file;if(result.error)alert('Upload error: '+result.error);}catch{}
+      // Step 3: Finalize - retry once if session expired
+      let endResp=await fetch(UPLOAD_API+'?action=uploadEnd&data='+encodeURIComponent(JSON.stringify({sessionId})));
+      let endResult;
+      try{endResult=await endResp.json();}catch{endResult={error:'Invalid response'};}
+      if(endResult.success)return endResult.file;
+      if(endResult.error==='Session expired'){
+        // Retry: send all data in a single small GET if possible, or alert user
+        alert('Upload timed out. Please try with a smaller file or try again.');
+        return null;
+      }
+      if(endResult.error)alert('Upload error: '+endResult.error);
       return {fileName:fileInfo.fileName};
-    }catch(e){alert('Upload error: '+e.message);return null;}
+    }catch(e){return null;}
   };
 
   const submitToSheet=async(record)=>{
@@ -895,9 +878,15 @@ export default function App(){
     }catch(e){console.error('Submit error:',e);}
   };
   const goHome=()=>{setScreen('landing');setContractor('');setShowForm(false);};
+  const [formStep,setFormStep]=useState(1);
   const goBack=()=>{
-    if(showForm){setShowForm(false);setEditPerson(null);return;}
-    if(screen==='contractor'){setScreen('login');setLoginTab('contractor');return;}
+    if(showForm){
+      if(formStep>1){setFormStep(prev=>prev-1);return;}
+      setShowForm(false);setEditPerson(null);return;
+    }
+    if(screen==='dashboard'){setScreen('landing');return;}
+    if(screen==='contractor'){setScreen('landing');return;}
+    if(screen==='login'){setScreen('landing');return;}
     setScreen('landing');
   };
   return (
@@ -906,9 +895,9 @@ export default function App(){
       {screen==='landing'&&<Landing goContractor={()=>{setLoginTab('contractor');setScreen('login');}} goMgmt={()=>{setLoginTab('mgmt');setScreen('login');}}/>}
       {screen==='login'&&<Login defaultTab={loginTab} onContractorLogin={con=>{setContractor(con);setScreen('contractor');setShowForm(false);fetchData();}} onMgmtLogin={()=>{setScreen('dashboard');fetchData();}}/>}
       {loading&&<div style={{textAlign:'center',padding:'40px',color:C.mute,fontSize:14}}>Loading data...</div>}
-      {!loading&&screen==='contractor'&&!showForm&&<RosterView contractor={contractor} allP={allP} onAdd={()=>setShowForm(true)} onEdit={p=>{setEditPerson(p);setShowForm(true);}} onBulkAdd={rec=>submitToSheet({...rec,con:contractor})} onDelete={async(p)=>{if(!confirm('Delete '+p.fn+' '+p.ln+'?'))return;const data=encodeURIComponent(JSON.stringify({con:p.con||p.contractor||contractor,fn:p.fn,ln:p.ln}));await fetch(SHEET_API+'?action=delete&data='+data);setAllP(prev=>{const next=prev.filter(x=>!(x.fn===p.fn&&x.ln===p.ln&&(x.con||x.contractor)===(p.con||p.contractor||contractor)));try{localStorage.setItem('mobPortalData',JSON.stringify(next));}catch{}return next;});fetchData();}}/>}
-      {!loading&&screen==='contractor'&&showForm&&<Form contractor={contractor} tarEnd={tarEnd} trades={trades} editData={editPerson} uploadFile={uploadFile} onSubmit={rec=>{submitToSheet({...rec,con:contractor});setEditPerson(null);}} onRoster={()=>{setShowForm(false);setEditPerson(null);}}/>}
-      {!loading&&screen==='dashboard'&&<Dashboard allP={allP} trades={trades} onAccept={async(person)=>{const rec={...person,mobStatus:'Accepted',accepted:true,con:person.con||person.contractor};const data=encodeURIComponent(JSON.stringify(rec));await fetch(SHEET_API+'?action=submit&data='+data);fetchData();}} onDelete={async(person)=>{if(!confirm('Delete '+person.fn+' '+person.ln+'?'))return;const data=encodeURIComponent(JSON.stringify({action:'delete',con:person.con||person.contractor,fn:person.fn,ln:person.ln}));await fetch(SHEET_API+'?action=delete&data='+data);setAllP(p=>p.filter(x=>!(x.fn===person.fn&&x.ln===person.ln&&(x.con||x.contractor)===(person.con||person.contractor))));try{localStorage.setItem('mobPortalData',JSON.stringify(allP.filter(x=>!(x.fn===person.fn&&x.ln===person.ln&&(x.con||x.contractor)===(person.con||person.contractor)))));}catch{}fetchData();}} onApproveTrade={async(person,newTrade,type)=>{const rec={...person,trade:newTrade,tradeOther:'',tradeApproval:'Approved',con:person.con||person.contractor};const data=encodeURIComponent(JSON.stringify(rec));await fetch(SHEET_API+'?action=submit&data='+data);if(type==='custom'&&!trades.includes(newTrade)){setTrades(prev=>[...prev.filter(t=>t!=='Other \u2014 Pending Approval'),newTrade,'Other \u2014 Pending Approval'].sort());try{localStorage.setItem('customTrades',JSON.stringify([...new Set([...(JSON.parse(localStorage.getItem('customTrades')||'[]')),newTrade])]));}catch{}}fetchData();}} tarEndStr={tarEndStr} setTarEndStr={v=>{setTarEndStr(v);localStorage.setItem('tarEndDate',v);}}/>}
+      {!loading&&screen==='contractor'&&!showForm&&<RosterView contractor={contractor} allP={allP} trades={trades} onAdd={()=>setShowForm(true)} onEdit={p=>{setEditPerson(p);setShowForm(true);}} onBulkAdd={rec=>submitToSheet({...rec,con:contractor})} onDelete={async(p)=>{const data=encodeURIComponent(JSON.stringify({con:p.con||p.contractor||contractor,fn:p.fn,ln:p.ln}));setAllP(prev=>{const next=prev.filter(x=>!(x.fn===p.fn&&x.ln===p.ln&&(x.con||x.contractor)===(p.con||p.contractor||contractor)));try{localStorage.setItem('mobPortalData',JSON.stringify(next));}catch{}return next;});const resp=await fetch(SHEET_API+'?action=delete&data='+data);try{const r=await resp.json();if(!r.success)alert('Delete failed: '+(r.error||'Unknown error'));}catch{}setTimeout(fetchData,3000);}}/>}
+      {!loading&&screen==='contractor'&&showForm&&<Form contractor={contractor} tarEnd={tarEnd} formStep={formStep} setFormStep={setFormStep} trades={trades} editData={editPerson} uploadFile={uploadFile} onSubmit={rec=>{submitToSheet({...rec,con:contractor});setEditPerson(null);}} onRoster={()=>{setShowForm(false);setEditPerson(null);}}/>}
+      {!loading&&screen==='dashboard'&&<Dashboard allP={allP} trades={trades} onAccept={async(person)=>{const rec={...person,mobStatus:'Accepted',accepted:true,con:person.con||person.contractor};const data=encodeURIComponent(JSON.stringify(rec));await fetch(SHEET_API+'?action=submit&data='+data);fetchData();}} onDelete={async(person)=>{if(!confirm('Delete '+person.fn+' '+person.ln+' ('+( person.con||person.contractor)+')? This will remove them from the mobilization sheet.'))return;const data=encodeURIComponent(JSON.stringify({con:person.con||person.contractor,fn:person.fn,ln:person.ln}));setAllP(p=>{const next=p.filter(x=>!(x.fn===person.fn&&x.ln===person.ln&&(x.con||x.contractor)===(person.con||person.contractor)));try{localStorage.setItem('mobPortalData',JSON.stringify(next));}catch{}return next;});const resp=await fetch(SHEET_API+'?action=delete&data='+data);try{const r=await resp.json();if(!r.success)alert('Delete failed: '+(r.error||'Unknown error'));}catch{}setTimeout(fetchData,3000);}} onApproveTrade={async(person,newTrade,type)=>{const rec={...person,trade:newTrade,tradeOther:'',tradeApproval:'Approved',con:person.con||person.contractor};const data=encodeURIComponent(JSON.stringify(rec));await fetch(SHEET_API+'?action=submit&data='+data);if(type==='custom'&&!trades.includes(newTrade)){setTrades(prev=>[...prev.filter(t=>t!=='Other \u2014 Pending Approval'),newTrade,'Other \u2014 Pending Approval'].sort());try{localStorage.setItem('customTrades',JSON.stringify([...new Set([...(JSON.parse(localStorage.getItem('customTrades')||'[]')),newTrade])]));}catch{}}fetchData();}} tarEndStr={tarEndStr} setTarEndStr={v=>{setTarEndStr(v);localStorage.setItem('tarEndDate',v);}}/>}
       <div style={{position:'fixed',bottom:10,right:20,fontSize:10,color:'#B0B8C4',letterSpacing:'0.5px',zIndex:999}}>v2.38</div>
     </div>
   );

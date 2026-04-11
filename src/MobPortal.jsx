@@ -30,7 +30,7 @@ const cleanDate=(d)=>{
 };
 
 const CONTRACTORS = ['Ardent','Axis(FOX)','ChillCO','Claymar','Control Worx','Cooling Tower Depot','Copper Canyon','Cryostar','Custofab','Dashiell','FTS','Industrial Valve','Insight','ISS','Petrin','PK Safety','PMI','Prommac','Spartan Speciality','Sterling','Structural','Sulzer','Titan'];
-const DEFAULT_TRADES = ['Apprentice','Asset Manager','Boilermaker','Civil Tech','Combo Welder','Crane Operator','Eddy Current Technician','Equipment Operator','Fire Watcher','Foreman','Gate Keeper','High-Pressure Wash Tech','Insulator','Instrument Tech','Junior Instrument Tech','Laborer','Lead Hand','Lead Testing Technician','Material Technician','Millwright Journeyman','NDE Technician','Painter','Pipefitter','Pipefitter Foreman','Project Manager','QA/QC','Rescue Supervisor','Rescue Technician','Rigger','Safety Officer','Safety Technician','Safety Watch','Scaffold Builder','Superintendent','Supervisor','Technician','Vac Truck Crew','Valve Technician','Welder','Other — Pending Approval'];
+const DEFAULT_TRADES = ['Apprentice','Asset Manager','Boilermaker','Civil Tech','Combo Welder','Crane Operator','Eddy Current Technician','Equipment Operator','Fire Watcher','Foreman','Gate Keeper','High-Pressure Wash Tech','Insulator','Instrument Tech','Junior Instrument Tech','Laborer','Lead Hand','Lead Testing Technician','Material Technician','Millwright Journeyman','NDE Technician','Painter','Pipefitter','Pipefitter Foreman','Project Manager','QA/QC','Rescue Supervisor','Rescue Technician','Rigger','Safety Officer','Safety Technician','Safety Watch','Scaffold Builder','Superintendent','Supervisor','Technician','Vac Truck Crew','Valve Technician','Welder','Other'];
 const CODES = {'Ardent':'ARD26','Axis(FOX)':'AXF26','ChillCO':'CHI26','Claymar':'CLY26','Control Worx':'CTW26','Cooling Tower Depot':'CTD26','Copper Canyon':'COP26','Cryostar':'CRY26','Custofab':'CUS26','Dashiell':'DAS26','FTS':'FTS26','Industrial Valve':'IND26','Insight':'INS26','ISS':'ISS26','Petrin':'PET26','PK Safety':'PKS26','PMI':'PMI26','Prommac':'PRM26','Spartan Speciality':'SPA26','Sterling':'STR26','Structural':'STU26','Sulzer':'SUL26','Titan':'TIT26'};
 
 const DEMO = [];
@@ -283,7 +283,7 @@ const Form=({contractor,tarEnd,onSubmit,onRoster,editData,uploadFile,trades,form
   const [done,setDone]=useState(false);
   const s=(k,v)=>setF(p=>({...p,[k]:v}));
   const ok=[
-    ()=>f.fn&&f.ln&&(f.trade&&f.trade!=='Other — Pending Approval'||f.tradeOther)&&f.start&&f.end&&f.photoID,
+    ()=>f.fn&&f.ln&&(f.trade&&f.trade!=='Other'||f.tradeOther)&&f.start&&f.end&&f.photoID,
     ()=>f.bp&&f.swp&&f.nasu&&f.bpDoc&&f.swpDoc&&f.nasuDoc&&new Date(f.bp+'T12:00:00')>=tarEnd&&new Date(f.swp+'T12:00:00')>=tarEnd&&new Date(f.nasu+'T12:00:00')>=tarEnd,
     ()=>f.ct&&f.comp&&(f.ct!=='Qualification'||f.compDoc),
     ()=>true,
@@ -331,8 +331,15 @@ const Form=({contractor,tarEnd,onSubmit,onRoster,editData,uploadFile,trades,form
             <Fld label="Cell Phone Number" req hint="Employee mobile/cell number for site communication">
               <Inp val={f.mobile} set={v=>s('mobile',v)} ph="+1 (555) 123-4567" type="tel"/>
             </Fld>
-            <Fld label="Trade / Role" req><Sel val={f.trade} set={v=>s('trade',v)} opts={trades||DEFAULT_TRADES} ph="— Select trade —"/></Fld>
-            {f.trade==='Other — Pending Approval'&&<><div style={{padding:'8px 12px',borderRadius:6,background:'#FFFBEB',border:'1px solid #FDE68A',fontSize:12,color:'#92400E',marginBottom:12}}>This trade is not on the approved list. It will be submitted for management approval before the person can be mobilized.</div><Fld label="Specify Trade" req><Inp val={f.tradeOther} set={v=>s('tradeOther',v)} ph="Describe the trade or role"/></Fld></>}
+            <Fld label="Trade / Role" req hint="Select your trade from the list. If your trade is not listed, select 'Other' at the bottom and describe it below.">
+              <select value={f.trade} onChange={e=>s('trade',e.target.value)} style={{background:C.surf,border:'1px solid '+C.bdr,borderRadius:6,color:f.trade?C.text:C.mute,padding:'11px 13px',fontSize:14,width:'100%',boxSizing:'border-box'}}>
+                <option value="">— Select trade —</option>
+                {(trades||DEFAULT_TRADES).filter(t=>t!=='Other').map(t=><option key={t} value={t}>{t}</option>)}
+                <option disabled>────────────</option>
+                <option value="Other" style={{fontWeight:'bold'}}>Other (not on the list)</option>
+              </select>
+            </Fld>
+            {f.trade==='Other'&&<><div style={{padding:'8px 12px',borderRadius:6,background:'#FFFBEB',border:'1px solid #FDE68A',fontSize:12,color:'#92400E',marginBottom:12}}>This trade is not on the approved list. It will be submitted for management approval before the person can be mobilized.</div><Fld label="Specify Trade" req><Inp val={f.tradeOther} set={v=>s('tradeOther',v)} ph="Describe the trade or role"/></Fld></>}
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
               <Fld label="Start Date" req><Inp type="date" val={f.start} set={v=>s('start',v)}/></Fld>
               <Fld label="Finish Date" req><Inp type="date" val={f.end} set={v=>s('end',v)}/></Fld>
@@ -431,7 +438,7 @@ const Form=({contractor,tarEnd,onSubmit,onRoster,editData,uploadFile,trades,form
             </Fld>
             <Divline label="Submission Preview"/>
             <div style={{background:C.surf,borderRadius:10,padding:16,fontSize:12}}>
-              {[['Name',`${f.fn} ${f.ln}`],['Mobile',f.mobile||'—'],['Contractor',contractor],['Trade',f.trade==='Other — Pending Approval'?f.tradeOther:f.trade],['Period',`${f.start} → ${f.end}`],['Competency',`${f.ct} — ${f.comp}`],['Training Docs',f.training?'✓ Uploaded':'⚠ Missing'],['HSE Form',f.hse?'✓ Uploaded':'⚠ Missing']].map(([k,v])=>(
+              {[['Name',`${f.fn} ${f.ln}`],['Mobile',f.mobile||'—'],['Contractor',contractor],['Trade',f.trade==='Other'?f.tradeOther:f.trade],['Period',`${f.start} → ${f.end}`],['Competency',`${f.ct} — ${f.comp}`],['Training Docs',f.training?'✓ Uploaded':'⚠ Missing'],['HSE Form',f.hse?'✓ Uploaded':'⚠ Missing']].map(([k,v])=>(
                 <div key={k} style={{display:'flex',gap:8,padding:'5px 0',borderBottom:`1px solid ${C.bdr}33`}}>
                   <span style={{color:C.mute,minWidth:110}}>{k}:</span>
                   <span style={{color:C.text,fontWeight:600}}>{v}</span>
@@ -484,7 +491,7 @@ const RosterView=({contractor,allP,onAdd,onBulkAdd,onEdit,onDelete,trades})=>{
               'Click OK to download the template.');
             if(!proceed)return;
             try{
-              const tradeList=DEFAULT_TRADES.filter(t=>t!=='Other \u2014 Pending Approval');
+              const tradeList=DEFAULT_TRADES.filter(t=>t!=='Other');
               const wb=XLSX.utils.book_new();
               const headers=['First Name','Last Name','Mobile','Trade','Start Date','End Date','12 Basic Plus Expiry','19A AIL SWP Expiry','19A AIL NASU Expiry','Competency Type','Competency Detail'];
               const wsData=[headers];
@@ -611,7 +618,7 @@ const RosterView=({contractor,allP,onAdd,onBulkAdd,onEdit,onDelete,trades})=>{
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
 const Dashboard=({allP,tarEndStr,setTarEndStr,onApproveTrade,onAccept,onDelete,trades})=>{
-  const needsTradeApproval=(p)=>{if(p.accepted||p.mobStatus==='Accepted')return false;const std=(trades||DEFAULT_TRADES).filter(t=>t!=='Other \u2014 Pending Approval');return !std.includes(p.trade)&&p.trade!=='';};
+  const needsTradeApproval=(p)=>{if(p.accepted||p.mobStatus==='Accepted')return false;const std=(trades||DEFAULT_TRADES).filter(t=>t!=='Other');return !std.includes(p.trade)&&p.trade!=='';};
   const [tab,setTab]=useState('overview');
   const [search,setSearch]=useState('');
   const [filterCon,setFilterCon]=useState('');
@@ -661,10 +668,19 @@ const Dashboard=({allP,tarEndStr,setTarEndStr,onApproveTrade,onAccept,onDelete,t
             <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:i>0?'1px solid #FDE68A':'none',fontSize:12}}>
               <span style={{color:C.text}}><strong>{p.fn} {p.ln}</strong> ({p.con||p.contractor}) — <em>{p.tradeOther||p.trade||'No trade specified'}</em></span>
               <div style={{display:'flex',gap:6,alignItems:'center'}}>
-                <button onClick={()=>onApproveTrade(p,p.tradeOther||p.trade,'custom')} style={{padding:'4px 10px',fontSize:11,borderRadius:4,border:'1px solid #059669',background:'#ECFDF5',color:'#059669',cursor:'pointer',fontWeight:600,whiteSpace:'nowrap'}}>Approve</button>
+                <button onClick={()=>{
+                  const tradeName=p.tradeOther||p.trade;
+                  if(!tradeName||tradeName==='Other'){
+                    const name=prompt('Enter the trade name to approve for '+p.fn+' '+p.ln+':');
+                    if(!name)return;
+                    onApproveTrade(p,name,'custom');
+                  }else{
+                    onApproveTrade(p,tradeName,'custom');
+                  }
+                }} style={{padding:'4px 10px',fontSize:11,borderRadius:4,border:'1px solid #059669',background:'#ECFDF5',color:'#059669',cursor:'pointer',fontWeight:600,whiteSpace:'nowrap'}}>Approve</button>
                 <select onChange={e=>{if(e.target.value)onApproveTrade(p,e.target.value,'existing');}} style={{padding:'4px 8px',fontSize:11,borderRadius:4,border:'1px solid #D97706',background:'#fff',color:C.text,cursor:'pointer'}}>
                   <option value="">Reassign to...</option>
-                  {(trades||DEFAULT_TRADES).filter(t=>t!=='Other \u2014 Pending Approval').map(t=><option key={t} value={t}>{t}</option>)}
+                  {(trades||DEFAULT_TRADES).filter(t=>t!=='Other').map(t=><option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
             </div>
@@ -772,7 +788,7 @@ export default function App(){
   const [showForm,setShowForm]=useState(false);
   const [editPerson,setEditPerson]=useState(null);
   const [allP,setAllP]=useState([]);
-  const [trades,setTrades]=useState(()=>{try{const custom=JSON.parse(localStorage.getItem('customTrades')||'[]');if(custom.length){const all=[...DEFAULT_TRADES.filter(t=>t!=='Other \u2014 Pending Approval'),...custom,'Other \u2014 Pending Approval'];return[...new Set(all)].sort();}return DEFAULT_TRADES;}catch{return DEFAULT_TRADES;}});
+  const [trades,setTrades]=useState(()=>{try{const custom=JSON.parse(localStorage.getItem('customTrades')||'[]');if(custom.length){const all=[...DEFAULT_TRADES.filter(t=>t!=='Other'),...custom,'Other'];return[...new Set(all)].sort();}return DEFAULT_TRADES;}catch{return DEFAULT_TRADES;}});
   const [tarEndStr,setTarEndStr]=useState(()=>localStorage.getItem('tarEndDate')||DEFAULT_TAR_END);
   const tarEnd=new Date(tarEndStr);
   const [loading]=useState(false);
@@ -897,7 +913,7 @@ export default function App(){
       {loading&&<div style={{textAlign:'center',padding:'40px',color:C.mute,fontSize:14}}>Loading data...</div>}
       {!loading&&screen==='contractor'&&!showForm&&<RosterView contractor={contractor} allP={allP} trades={trades} onAdd={()=>setShowForm(true)} onEdit={p=>{setEditPerson(p);setShowForm(true);}} onBulkAdd={rec=>submitToSheet({...rec,con:contractor})} onDelete={async(p)=>{const data=encodeURIComponent(JSON.stringify({con:p.con||p.contractor||contractor,fn:p.fn,ln:p.ln}));setAllP(prev=>{const next=prev.filter(x=>!(x.fn===p.fn&&x.ln===p.ln&&(x.con||x.contractor)===(p.con||p.contractor||contractor)));try{localStorage.setItem('mobPortalData',JSON.stringify(next));}catch{}return next;});const resp=await fetch(SHEET_API+'?action=delete&data='+data);try{const r=await resp.json();if(!r.success)alert('Delete failed: '+(r.error||'Unknown error'));}catch{}setTimeout(fetchData,3000);}}/>}
       {!loading&&screen==='contractor'&&showForm&&<Form contractor={contractor} tarEnd={tarEnd} formStep={formStep} setFormStep={setFormStep} trades={trades} editData={editPerson} uploadFile={uploadFile} onSubmit={rec=>{submitToSheet({...rec,con:contractor});setEditPerson(null);}} onRoster={()=>{setShowForm(false);setEditPerson(null);}}/>}
-      {!loading&&screen==='dashboard'&&<Dashboard allP={allP} trades={trades} onAccept={async(person)=>{const rec={...person,mobStatus:'Accepted',accepted:true,con:person.con||person.contractor};const data=encodeURIComponent(JSON.stringify(rec));await fetch(SHEET_API+'?action=submit&data='+data);fetchData();}} onDelete={async(person)=>{if(!confirm('Delete '+person.fn+' '+person.ln+' ('+( person.con||person.contractor)+')? This will remove them from the mobilization sheet.'))return;const data=encodeURIComponent(JSON.stringify({con:person.con||person.contractor,fn:person.fn,ln:person.ln}));setAllP(p=>{const next=p.filter(x=>!(x.fn===person.fn&&x.ln===person.ln&&(x.con||x.contractor)===(person.con||person.contractor)));try{localStorage.setItem('mobPortalData',JSON.stringify(next));}catch{}return next;});const resp=await fetch(SHEET_API+'?action=delete&data='+data);try{const r=await resp.json();if(!r.success)alert('Delete failed: '+(r.error||'Unknown error'));}catch{}setTimeout(fetchData,3000);}} onApproveTrade={async(person,newTrade,type)=>{const rec={...person,trade:newTrade,tradeOther:'',tradeApproval:'Approved',con:person.con||person.contractor};const data=encodeURIComponent(JSON.stringify(rec));await fetch(SHEET_API+'?action=submit&data='+data);if(type==='custom'&&!trades.includes(newTrade)){setTrades(prev=>[...prev.filter(t=>t!=='Other \u2014 Pending Approval'),newTrade,'Other \u2014 Pending Approval'].sort());try{localStorage.setItem('customTrades',JSON.stringify([...new Set([...(JSON.parse(localStorage.getItem('customTrades')||'[]')),newTrade])]));}catch{}}fetchData();}} tarEndStr={tarEndStr} setTarEndStr={v=>{setTarEndStr(v);localStorage.setItem('tarEndDate',v);}}/>}
+      {!loading&&screen==='dashboard'&&<Dashboard allP={allP} trades={trades} onAccept={async(person)=>{const rec={...person,mobStatus:'Accepted',accepted:true,con:person.con||person.contractor};const data=encodeURIComponent(JSON.stringify(rec));await fetch(SHEET_API+'?action=submit&data='+data);fetchData();}} onDelete={async(person)=>{if(!confirm('Delete '+person.fn+' '+person.ln+' ('+( person.con||person.contractor)+')? This will remove them from the mobilization sheet.'))return;const data=encodeURIComponent(JSON.stringify({con:person.con||person.contractor,fn:person.fn,ln:person.ln}));setAllP(p=>{const next=p.filter(x=>!(x.fn===person.fn&&x.ln===person.ln&&(x.con||x.contractor)===(person.con||person.contractor)));try{localStorage.setItem('mobPortalData',JSON.stringify(next));}catch{}return next;});const resp=await fetch(SHEET_API+'?action=delete&data='+data);try{const r=await resp.json();if(!r.success)alert('Delete failed: '+(r.error||'Unknown error'));}catch{}setTimeout(fetchData,3000);}} onApproveTrade={async(person,newTrade,type)=>{const rec={...person,trade:newTrade,tradeOther:'',tradeApproval:'Approved',con:person.con||person.contractor};const data=encodeURIComponent(JSON.stringify(rec));await fetch(SHEET_API+'?action=submit&data='+data);if(type==='custom'&&!trades.includes(newTrade)){setTrades(prev=>[...prev.filter(t=>t!=='Other'),newTrade,'Other'].sort());try{localStorage.setItem('customTrades',JSON.stringify([...new Set([...(JSON.parse(localStorage.getItem('customTrades')||'[]')),newTrade])]));}catch{}}fetchData();}} tarEndStr={tarEndStr} setTarEndStr={v=>{setTarEndStr(v);localStorage.setItem('tarEndDate',v);}}/>}
       <div style={{position:'fixed',bottom:10,right:20,fontSize:10,color:'#B0B8C4',letterSpacing:'0.5px',zIndex:999}}>v2.38</div>
     </div>
   );

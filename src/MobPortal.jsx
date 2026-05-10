@@ -4,7 +4,7 @@ import * as XLSX from 'xlsx';
 // ─── DEMO MODE ────────────────────────────────────────────────────────────────
 const DEMO_MODE = (typeof window!=='undefined') && (new URLSearchParams(window.location.search).get('demo')==='1');
 const LS_KEY_DATA = DEMO_MODE ? 'mobPortalData_demo' : 'mobPortalData_v2';
-const LS_KEY_TRADES = DEMO_MODE ? 'customTrades_demo' : 'customTrades';
+const LS_KEY_TRADES = DEMO_MODE ? 'customTrades_demo' : 'customTrades_v2';
 const LS_KEY_TAREND = DEMO_MODE ? 'tarEndDate_demo' : 'tarEndDate';
 if(DEMO_MODE && typeof document!=='undefined'){document.title='DEMO — Prommac Mobilization Portal';}
 
@@ -904,7 +904,7 @@ export default function App(){
   // Load from localStorage as primary (Sheet sync is background)
   useEffect(()=>{
     // Wipe legacy localStorage from previous builds (orphan old keys to prevent stale demo data)
-    try{if(!DEMO_MODE){localStorage.removeItem('mobPortalData');}}catch{}
+    try{if(!DEMO_MODE){localStorage.removeItem('mobPortalData');localStorage.removeItem('customTrades');}}catch{}
     try{const saved=localStorage.getItem(LS_KEY_DATA);if(saved){setAllP(JSON.parse(saved));}}catch{}
     // Also try to fetch from Sheet
     if(SHEET_API){

@@ -1,10 +1,28 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import * as XLSX from 'xlsx';
 
+// ─── DEMO MODE ────────────────────────────────────────────────────────────────
+const DEMO_MODE = (typeof window!=='undefined') && (new URLSearchParams(window.location.search).get('demo')==='1');
+const LS_KEY_DATA = DEMO_MODE ? 'mobPortalData_demo' : 'mobPortalData_v2';
+const LS_KEY_TRADES = DEMO_MODE ? 'customTrades_demo' : 'customTrades';
+const LS_KEY_TAREND = DEMO_MODE ? 'tarEndDate_demo' : 'tarEndDate';
+if(DEMO_MODE && typeof document!=='undefined'){document.title='DEMO — Prommac Mobilization Portal';}
+
 // ─── GOOGLE SHEET API ────────────────────────────────────────────────────────
-// After deploying the Apps Script as a web app, paste the URL here:
-const SHEET_API = 'https://script.google.com/macros/s/AKfycbxE-6_fDLV008aSDxbi3OLqS5sErvopiE0HurCiaSWwijKDcHQ9QplCmGZHrj4WGgss/exec';
-const UPLOAD_API = 'https://script.google.com/macros/s/AKfycbxQwj6_vMpTplHfPtvoEbdemC871npVzduMKzjFgJ4jskDwRZFax_jDEA9w9u6B0FhL/exec';
+const SHEET_API = DEMO_MODE ? '' : 'https://script.google.com/macros/s/AKfycbxE-6_fDLV008aSDxbi3OLqS5sErvopiE0HurCiaSWwijKDcHQ9QplCmGZHrj4WGgss/exec';
+const UPLOAD_API = DEMO_MODE ? '' : 'https://script.google.com/macros/s/AKfycbxQwj6_vMpTplHfPtvoEbdemC871npVzduMKzjFgJ4jskDwRZFax_jDEA9w9u6B0FhL/exec';
+
+// ─── REJECTION REASONS ────────────────────────────────────────────────────────
+const REJECTION_REASONS = [
+  'Incorrect or missing HSE document',
+  'Incorrect or missing ID / passport document',
+  'Incorrect or missing medical document',
+  'Incorrect or missing training / certification document',
+  'Incorrect personal information',
+  'Incorrect contractor / company information',
+  'Photo or profile information issue',
+  'Other',
+];
 
 
 // Normalize dates from various formats to YYYY-MM-DD for input[type=date]
@@ -29,9 +47,9 @@ const cleanDate=(d)=>{
   return'';
 };
 
-const CONTRACTORS = ['Acme Cryo','Aqua-zyme','AWC-Inc','Axis','Copper Canyon','Dashiell','Flowserve','Group One Industrial','Industrial Valve','Innovative Cleaning Solutions','IPS','ISS-NA','Liquid Process','Monarca','Obr Cooling Towers','Ohmstede','Palacios Marine Industrial (PMI)','PK Industrial','PK Safety','Prommac','Puffer','Sage Mechanical','Select Safety USA','Sun Belt Rentals','Sun State Equipment','Teaminc','TNT Crane','Willscot'];
+const CONTRACTORS = ['Acme Cryo','Aqua-zyme','AWC-Inc','Axis','BMF','Claymar','Copper Canyon','Dashiell','Flowserve','Group One Industrial','Industrial Valve','Innovative Cleaning Solutions','IPS','ISS-NA','Liquid Process','Monarca','Obr Cooling Towers','Ohmstede','Palacios Marine Industrial (PMI)','PK Industrial','PK Safety','Prommac','Puffer','Sage Mechanical','Select Safety USA','Sun Belt Rentals','Sun State Equipment','Teaminc','TNT Crane','Willscot'];
 const DEFAULT_TRADES = ['Apprentice','Asset Manager','Boilermaker','Civil Tech','Combo Welder','Crane Operator','Eddy Current Technician','Equipment Operator','Fire Watcher','Foreman','Gate Keeper','High-Pressure Wash Tech','Instrument Tech','Insulator','Junior Instrument Tech','Laborer','Lead Hand','Lead Testing Technician','Material Technician','Millwright Journeyman','NDE Technician','Painter','Pipefitter','Project Manager','QA/QC','Rescue Supervisor','Rescue Technician','Rigger','Safety Officer','Safety Watch','Scaffold Builder','Superintendent','Supervisor','Technician','Vac Truck Crew Member','Valve Technician','Welder','Other'];
-const CODES = {'Acme Cryo':'ACR26','Aqua-zyme':'AQZ26','AWC-Inc':'AWC26','Axis':'AXS26','Copper Canyon':'COP26','Dashiell':'DAS26','Flowserve':'FLW26','Group One Industrial':'GOI26','Industrial Valve':'IND26','Innovative Cleaning Solutions':'ICS26','IPS':'IPS26','ISS-NA':'ISS26','Liquid Process':'LPR26','Monarca':'MON26','Obr Cooling Towers':'OBR26','Ohmstede':'OHM26','Palacios Marine Industrial (PMI)':'PMI26','PK Industrial':'PKI26','PK Safety':'PKS26','Prommac':'PRM26','Puffer':'PUF26','Sage Mechanical':'SAG26','Select Safety USA':'SSU26','Sun Belt Rentals':'SBR26','Sun State Equipment':'SSE26','Teaminc':'TMI26','TNT Crane':'TNT26','Willscot':'WIL26'};
+const CODES = {'Acme Cryo':'ACR26','Aqua-zyme':'AQZ26','AWC-Inc':'AWC26','Axis':'AXS26','BMF':'BMF26','Claymar':'CLM26','Copper Canyon':'COP26','Dashiell':'DAS26','Flowserve':'FLW26','Group One Industrial':'GOI26','Industrial Valve':'IND26','Innovative Cleaning Solutions':'ICS26','IPS':'IPS26','ISS-NA':'ISS26','Liquid Process':'LPR26','Monarca':'MON26','Obr Cooling Towers':'OBR26','Ohmstede':'OHM26','Palacios Marine Industrial (PMI)':'PMI26','PK Industrial':'PKI26','PK Safety':'PKS26','Prommac':'PRM26','Puffer':'PUF26','Sage Mechanical':'SAG26','Select Safety USA':'SSU26','Sun Belt Rentals':'SBR26','Sun State Equipment':'SSE26','Teaminc':'TMI26','TNT Crane':'TNT26','Willscot':'WIL26'};
 
 const DEMO = [];
 
@@ -40,6 +58,8 @@ const DEFAULT_TAR_END = '2026-06-30';
 const WARN30 = new Date(TODAY); WARN30.setDate(TODAY.getDate()+30);
 
 const personStatus=(p)=>{
+  if(p.mobStatus==='Revision Required') return 'Revision Required';
+  if(p.mobStatus==='Revision Submitted'||p.mobStatus==='Resubmitted') return 'Revision Submitted';
   const hasTrainingDocs=p.training||(p.bpDoc&&p.swpDoc&&p.nasuDoc);
   const missingDoc=!p.photoID||!hasTrainingDocs||!p.hse||(p.ct==='Qualification'&&!p.compDoc);
   const missingDate=!p.bp||!p.swp||!p.nasu;
@@ -80,6 +100,8 @@ const SC={
   'Expiring Soon':     {bg:'#FFFBEB',tx:'#D97706',bd:'#FDE68A'},
   'Expired Training':  {bg:'#FEF2F2',tx:'#DC2626',bd:'#FECACA'},
   'Missing Docs':      {bg:'#FEF2F2',tx:'#DC2626',bd:'#FECACA'},
+  'Revision Required': {bg:'#FFF7ED',tx:'#C2410C',bd:'#FED7AA'},
+  'Revision Submitted':{bg:'#EEF2FF',tx:'#4338CA',bd:'#C7D2FE'},
 };
 
 const ss=(extra={})=>({background:C.surf,border:`1px solid ${C.bdr}`,borderRadius:6,color:C.text,padding:'11px 13px',fontSize:14,width:'100%',boxSizing:'border-box',outline:'none',...extra});
@@ -274,9 +296,11 @@ const Login=({defaultTab='contractor',onContractorLogin,onMgmtLogin})=>{
 const STEPS=['Personal Info','Safety Training','Competency','Job-Specific','Documents'];
 const EMPTY={fn:'',ln:'',mobile:'',email:'',trade:'',tradeOther:'',start:'',end:'',photoID:false,bp:'',bpDoc:false,swp:'',swpDoc:false,nasu:'',nasuDoc:false,training:false,ct:'',comp:'',compDoc:false,jstCS:false,jstCSDoc:false,jstWH:false,jstWHDoc:false,jstCrane:false,jstCraneDoc:false,jstScaff:false,jstScaffDoc:false,jstOther:false,jstOtherDoc:false,jstOtherDesc:'',jstDocs:false,hse:false};
 
-const Form=({contractor,tarEnd,onSubmit,onRoster,editData,uploadFile,trades,formStep:externalStep,setFormStep:setExternalStep})=>{
+const Form=({contractor,tarEnd,tarEndStr,onSubmit,onRoster,editData,uploadFile,trades,formStep:externalStep,setFormStep:setExternalStep})=>{
   const [step,setStep]=useState(externalStep||1);
   const updateStep=(v)=>{const newStep=typeof v==='function'?v(step):v;setStep(newStep);if(setExternalStep)setExternalStep(newStep);};
+  // Scroll to top whenever the user advances/regresses to a different step
+  useEffect(()=>{try{window.scrollTo({top:0,left:0,behavior:'auto'});if(document.documentElement)document.documentElement.scrollTop=0;if(document.body)document.body.scrollTop=0;}catch{}},[step]);
   const doUpload=(fieldKey,fileInfo)=>{
     s(fieldKey,true);
     if(uploadFile&&fileInfo&&fileInfo.fileData){
@@ -288,12 +312,22 @@ const Form=({contractor,tarEnd,onSubmit,onRoster,editData,uploadFile,trades,form
   const s=(k,v)=>setF(p=>({...p,[k]:v}));
   const ok=[
     ()=>f.fn&&f.ln&&(f.trade&&f.trade!=='Other'||f.tradeOther)&&f.start&&f.end&&f.photoID,
-    ()=>f.bp&&f.swp&&f.nasu&&f.bpDoc&&f.swpDoc&&f.nasuDoc&&new Date(f.bp+'T12:00:00')>=tarEnd&&new Date(f.swp+'T12:00:00')>=tarEnd&&new Date(f.nasu+'T12:00:00')>=tarEnd,
+    ()=>f.bp&&f.swp&&f.nasu&&f.bpDoc&&f.swpDoc&&f.nasuDoc&&f.bp>=tarEndStr&&f.swp>=tarEndStr&&f.nasu>=tarEndStr,
     ()=>f.ct&&f.comp&&(f.ct!=='Qualification'||f.compDoc),
     ()=>true,
     ()=>f.hse,
   ];
-  const handleSubmit=()=>{onSubmit({...f,id:f.id||Date.now(),con:contractor,training:f.bpDoc&&f.swpDoc&&f.nasuDoc});setDone(true);};
+  const handleSubmit=()=>{
+    const wasRejected=editData&&editData.mobStatus==='Revision Required';
+    const now=new Date().toISOString();
+    let revisionHistory=[];
+    try{if(editData&&editData.revisionHistory){revisionHistory=typeof editData.revisionHistory==='string'?JSON.parse(editData.revisionHistory):(editData.revisionHistory||[]);}}catch{revisionHistory=[];}
+    if(wasRejected){revisionHistory=[...revisionHistory,{action:'Resubmitted',date:now,by:f.email||''}];}
+    const rec={...f,id:f.id||Date.now(),con:contractor,training:f.bpDoc&&f.swpDoc&&f.nasuDoc,revisionHistory:JSON.stringify(revisionHistory)};
+    if(wasRejected){rec.mobStatus='Revision Submitted';rec.resubmittedAt=now;}
+    onSubmit(rec);
+    setDone(true);
+  };
 
   if(done) return (
     <div style={{maxWidth:480,margin:'60px auto',padding:24,textAlign:'center'}}>
@@ -307,8 +341,22 @@ const Form=({contractor,tarEnd,onSubmit,onRoster,editData,uploadFile,trades,form
     </div>
   );
 
+  const revisionInfo=(editData&&editData.mobStatus==='Revision Required')?editData:null;
   return (
     <div style={{maxWidth:660,margin:'0 auto',padding:'28px 20px'}}>
+      {revisionInfo&&(
+        <div style={{marginBottom:18,padding:'14px 16px',background:'#FFF7ED',border:'2px solid #FB923C',borderRadius:10}}>
+          <div style={{fontSize:11,fontWeight:800,color:'#C2410C',letterSpacing:'1.5px',textTransform:'uppercase',marginBottom:6}}>⚠ Revision Required</div>
+          <div style={{fontSize:13,color:'#7C2D12',marginBottom:8}}>Management has requested the following corrections before this submission can be accepted:</div>
+          {Array.isArray(revisionInfo.rejectionReasons)&&revisionInfo.rejectionReasons.length>0&&(
+            <ul style={{margin:'6px 0 8px 18px',padding:0,fontSize:13,color:'#9A3412'}}>
+              {revisionInfo.rejectionReasons.map((r,i)=><li key={i} style={{marginBottom:3}}>{r}</li>)}
+            </ul>
+          )}
+          {revisionInfo.rejectionNote&&<div style={{fontSize:12,color:'#7C2D12',fontStyle:'italic',marginTop:6,padding:'8px 10px',background:'rgba(255,255,255,0.6)',borderRadius:6}}>Note from reviewer: {revisionInfo.rejectionNote}</div>}
+          <div style={{fontSize:11,color:'#9A3412',marginTop:8}}>Update the items above, then click Submit Record on the final step to resubmit for review.</div>
+        </div>
+      )}
       {/* Progress bar */}
       <div style={{marginBottom:28}}>
         <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
@@ -363,11 +411,11 @@ const Form=({contractor,tarEnd,onSubmit,onRoster,editData,uploadFile,trades,form
             <div style={{padding:'10px 14px',borderRadius:8,background:'#FEF2F2',border:'1px solid #FECACA',fontSize:12,color:'#DC2626',marginBottom:18,fontWeight:600}}>All training must be valid through {tarEnd.toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'})} (turnaround end date). Expiry dates before this date will not be accepted.</div>
             <div style={{background:C.surf,border:`1px solid ${C.bdr}`,borderRadius:10,padding:18,marginBottom:20}}>
               <div style={{fontSize:10,fontWeight:700,color:C.orange,letterSpacing:'1px',textTransform:'uppercase',marginBottom:16}}>Mandatory Training Expiry Dates</div>
-              {[['bp','bpDoc','12 Basic Plus','12-hour Basic Plus Safety Council certification'],['swp','swpDoc','19A AIL SWP','Air Liquide Site Work Procedure induction'],['nasu','nasuDoc','19A AIL NASU','Nederland ASU site-specific induction']].map(([dk,ck,label,hint])=>(
+              {[['bp','bpDoc','12 Basic Plus','12-hour Basic Plus Safety Council certification'],['swp','swpDoc','19AL SWP','Air Liquide Site Work Procedure induction'],['nasu','nasuDoc','19AL FASU','Air Liquide Freeport ASU site-specific induction']].map(([dk,ck,label,hint])=>(
                 <div key={dk} style={{marginBottom:16}}>
                   <Fld label={label+' — Expiry Date'} req hint={hint}>
                     <Inp type="date" val={f[dk]} set={v=>s(dk,v)}/>
-                    {f[dk]&&new Date(f[dk]+'T12:00:00')<tarEnd&&<div style={{color:'#DC2626',fontSize:11,fontWeight:600,marginTop:4}}>Expiry date must be on or after {tarEnd.toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'})}</div>}
+                    {f[dk]&&f[dk]<tarEndStr&&<div style={{color:'#DC2626',fontSize:11,fontWeight:600,marginTop:4}}>Expiry date must be on or after {tarEnd.toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'})}</div>}
                   </Fld>
                   {f[dk]&&<div style={{marginTop:4}}>
                     <UploadBox label={label+' certificate'} done={f[ck]} onToggle={(name)=>s(ck,!!name)} onFile={(fi)=>doUpload(ck,fi)}/>
@@ -500,7 +548,7 @@ const RosterView=({contractor,allP,onAdd,onBulkAdd,onEdit,onDelete,trades})=>{
             try{
               const tradeList=DEFAULT_TRADES.filter(t=>t!=='Other');
               const wb=XLSX.utils.book_new();
-              const headers=['First Name','Last Name','Mobile','Trade','Start Date','End Date','12 Basic Plus Expiry','19A AIL SWP Expiry','19A AIL NASU Expiry','Competency Type','Competency Detail'];
+              const headers=['First Name','Last Name','Mobile','Trade','Start Date','End Date','12 Basic Plus Expiry','19AL SWP Expiry','19AL FASU Expiry','Competency Type','Competency Detail'];
               const wsData=[headers];
               for(let r=0;r<50;r++)wsData.push(['','','','','','','','','','']);
               const ws=XLSX.utils.aoa_to_sheet(wsData);
@@ -540,7 +588,7 @@ const RosterView=({contractor,allP,onAdd,onBulkAdd,onEdit,onDelete,trades})=>{
                     let count=0;
                     rows.forEach((row,i)=>{
                       const fn=String(row['First Name']||'').trim();if(!fn)return;
-                      const rec={id:Date.now()+i,con:contractor,fn,ln:String(row['Last Name']||'').trim(),mobile:String(row['Mobile']||'').trim(),trade:String(row['Trade']||'').trim(),start:cleanDate(row['Start Date']),end:cleanDate(row['End Date']||row['Finish Date']),bp:cleanDate(row['12 Basic Plus Expiry']),swp:cleanDate(row['19A AIL SWP Expiry']),nasu:cleanDate(row['19A AIL NASU Expiry']),ct:String(row['Competency Type']||'Experience').trim(),comp:String(row['Competency Detail']||'').trim(),photoID:false,training:false,hse:false,compDoc:false};
+                      const rec={id:Date.now()+i,con:contractor,fn,ln:String(row['Last Name']||'').trim(),mobile:String(row['Mobile']||'').trim(),trade:String(row['Trade']||'').trim(),start:cleanDate(row['Start Date']),end:cleanDate(row['End Date']||row['Finish Date']),bp:cleanDate(row['12 Basic Plus Expiry']),swp:cleanDate(row['19AL SWP Expiry']||row['19A AIL SWP Expiry']),nasu:cleanDate(row['19AL FASU Expiry']||row['19ALFASU Expiry']||row['19A AIL NASU Expiry']),ct:String(row['Competency Type']||'Experience').trim(),comp:String(row['Competency Detail']||'').trim(),photoID:false,training:false,hse:false,compDoc:false};
                       onBulkAdd(rec);count++;
                     });
                     alert(count+' personnel imported successfully. Training certificates and documents must still be uploaded individually.');
@@ -560,7 +608,7 @@ const RosterView=({contractor,allP,onAdd,onBulkAdd,onEdit,onDelete,trades})=>{
                       if(vals.length<2)continue;
                       const row={};hdrs.forEach((h,j)=>row[h]=vals[j]||'');
                       if(!row['First Name'])continue;
-                      const rec={id:Date.now()+i,con:contractor,fn:row['First Name']||'',ln:row['Last Name']||'',mobile:row['Mobile']||row['Badge Number']||'',trade:row['Trade']||'',start:cleanDate(row['Start Date']),end:cleanDate(row['End Date']||row['Finish Date']),bp:cleanDate(row['12 Basic Plus Expiry']),swp:cleanDate(row['19A AIL SWP Expiry']),nasu:cleanDate(row['19A AIL NASU Expiry']),ct:row['Competency Type']||'Experience',comp:row['Competency Detail']||'',photoID:false,training:false,hse:false,compDoc:false};
+                      const rec={id:Date.now()+i,con:contractor,fn:row['First Name']||'',ln:row['Last Name']||'',mobile:row['Mobile']||row['Badge Number']||'',trade:row['Trade']||'',start:cleanDate(row['Start Date']),end:cleanDate(row['End Date']||row['Finish Date']),bp:cleanDate(row['12 Basic Plus Expiry']),swp:cleanDate(row['19AL SWP Expiry']||row['19A AIL SWP Expiry']),nasu:cleanDate(row['19AL FASU Expiry']||row['19ALFASU Expiry']||row['19A AIL NASU Expiry']),ct:row['Competency Type']||'Experience',comp:row['Competency Detail']||'',photoID:false,training:false,hse:false,compDoc:false};
                       onBulkAdd(rec);count++;
                     }
                     alert(count+' personnel imported successfully. Training certificates and documents must still be uploaded individually.');
@@ -591,7 +639,7 @@ const RosterView=({contractor,allP,onAdd,onBulkAdd,onEdit,onDelete,trades})=>{
           <div style={{overflowX:'auto'}}>
             <table style={{width:'100%',borderCollapse:'collapse',minWidth:720}}>
               <thead><tr style={{borderBottom:`1px solid ${C.bdr}`,background:C.surf}}>
-                {['Name','Trade','Start','End','12 Basic Plus','SWP Expiry','NASU Expiry','Status','',''].map(h=>(
+                {['Name','Trade','Start','End','12 Basic Plus','19AL SWP Exp','19AL FASU Exp','Status','',''].map(h=>(
                   <th key={h} style={{padding:'11px 14px',textAlign:'left',fontSize:10,fontWeight:700,color:C.mute,letterSpacing:'0.8px',textTransform:'uppercase',whiteSpace:'nowrap'}}>{h}</th>
                 ))}
               </tr></thead>
@@ -623,9 +671,54 @@ const RosterView=({contractor,allP,onAdd,onBulkAdd,onEdit,onDelete,trades})=>{
   );
 };
 
+// ─── REJECT / REQUEST REVISION MODAL ─────────────────────────────────────────
+const RejectModal=({person,onCancel,onSubmit})=>{
+  const [reasons,setReasons]=useState([]);
+  const [note,setNote]=useState('Please correct the items selected above and resubmit for review.');
+  const [submitting,setSubmitting]=useState(false);
+  const toggle=(r)=>setReasons(prev=>prev.includes(r)?prev.filter(x=>x!==r):[...prev,r]);
+  const canSubmit=reasons.length>0&&!submitting;
+  const handle=async()=>{
+    if(!canSubmit)return;
+    setSubmitting(true);
+    try{await onSubmit({reasons,note});}finally{setSubmitting(false);}
+  };
+  if(!person)return null;
+  return (
+    <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.55)',zIndex:10001,display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={onCancel}>
+      <div onClick={e=>e.stopPropagation()} style={{background:'#fff',borderRadius:12,maxWidth:560,width:'100%',maxHeight:'90vh',overflowY:'auto',boxShadow:'0 20px 60px rgba(0,0,0,0.3)'}}>
+        <div style={{padding:'18px 22px',borderBottom:'1px solid #E5E7EB'}}>
+          <div style={{fontSize:11,fontWeight:700,color:'#DC2626',letterSpacing:'1.5px',textTransform:'uppercase',marginBottom:4}}>Request Revision</div>
+          <div style={{fontSize:17,fontWeight:700,color:'#1A2B4A'}}>{person.fn} {person.ln}</div>
+          <div style={{fontSize:12,color:'#6B7280',marginTop:2}}>{person.con||person.contractor}{person.email?' · '+person.email:''}</div>
+        </div>
+        <div style={{padding:'18px 22px'}}>
+          <div style={{fontSize:12,fontWeight:700,color:'#374151',marginBottom:10,textTransform:'uppercase',letterSpacing:'0.5px'}}>Select rejection reasons (one or more) <span style={{color:'#DC2626'}}>*</span></div>
+          <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:18}}>
+            {REJECTION_REASONS.map(r=>(
+              <label key={r} style={{display:'flex',alignItems:'flex-start',gap:10,padding:'10px 12px',borderRadius:6,border:'1px solid '+(reasons.includes(r)?'#DC2626':'#E5E7EB'),background:reasons.includes(r)?'#FEF2F2':'#FFF',cursor:'pointer',fontSize:13,color:'#1F2937'}}>
+                <input type="checkbox" checked={reasons.includes(r)} onChange={()=>toggle(r)} style={{marginTop:2}}/>
+                <span>{r}</span>
+              </label>
+            ))}
+          </div>
+          <div style={{fontSize:12,fontWeight:700,color:'#374151',marginBottom:6,textTransform:'uppercase',letterSpacing:'0.5px'}}>Note to contractor</div>
+          <textarea value={note} onChange={e=>setNote(e.target.value)} rows={4} style={{width:'100%',padding:10,borderRadius:6,border:'1px solid #E5E7EB',fontSize:13,fontFamily:'inherit',boxSizing:'border-box',resize:'vertical'}} placeholder="Add specific instructions for what needs to be corrected..."/>
+          <div style={{fontSize:11,color:'#6B7280',marginTop:6}}>This note and the selected reasons will be emailed to the submitter.</div>
+        </div>
+        <div style={{padding:'14px 22px',borderTop:'1px solid #E5E7EB',display:'flex',justifyContent:'flex-end',gap:10}}>
+          <button onClick={onCancel} disabled={submitting} style={{padding:'9px 18px',background:'#fff',border:'1px solid #E5E7EB',borderRadius:6,fontSize:13,fontWeight:600,color:'#374151',cursor:'pointer'}}>Cancel</button>
+          <button onClick={handle} disabled={!canSubmit} style={{padding:'9px 18px',background:canSubmit?'#DC2626':'#FCA5A5',color:'#fff',border:'none',borderRadius:6,fontSize:13,fontWeight:700,cursor:canSubmit?'pointer':'not-allowed'}}>{submitting?'Sending…':'Send Revision Request'}</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
-const Dashboard=({allP,tarEndStr,setTarEndStr,onApproveTrade,onAccept,onDelete,trades})=>{
+const Dashboard=({allP,tarEndStr,setTarEndStr,onApproveTrade,onAccept,onReject,onDelete,trades})=>{
   const needsTradeApproval=(p)=>{if(p.accepted||p.mobStatus==='Accepted')return false;const std=(trades||DEFAULT_TRADES).filter(t=>t!=='Other');return !std.includes(p.trade)&&p.trade!=='';};
+  const [rejectTarget,setRejectTarget]=useState(null);
   const [tab,setTab]=useState('overview');
   const [search,setSearch]=useState('');
   const [filterCon,setFilterCon]=useState('');
@@ -727,7 +820,7 @@ const Dashboard=({allP,tarEndStr,setTarEndStr,onApproveTrade,onAccept,onDelete,t
               <option value="">All Contractors</option>{uniqCon.map(c=><option key={c} value={c}>{c}</option>)}
             </select>
             <select value={filterSt} onChange={e=>setFilterSt(e.target.value)} style={ss({minWidth:150,padding:'9px 13px',color:filterSt?C.text:C.mute})}>
-              <option value="">All Statuses</option>{['Accepted','Pending Acceptance','Ready','Expiring Soon','Expired Training','Missing Docs'].map(s=><option key={s} value={s}>{s}</option>)}
+              <option value="">All Statuses</option>{['Accepted','Pending Acceptance','Revision Submitted','Revision Required','Ready','Expiring Soon','Expired Training','Missing Docs'].map(s=><option key={s} value={s}>{s}</option>)}
             </select>
             <div style={{padding:'9px 13px',fontSize:12,color:C.mute,display:'flex',alignItems:'center',whiteSpace:'nowrap'}}>{filtered.length}/{enriched.length}</div>
           </div>
@@ -735,7 +828,7 @@ const Dashboard=({allP,tarEndStr,setTarEndStr,onApproveTrade,onAccept,onDelete,t
             <div style={{overflowX:'auto'}}>
               <table style={{width:'100%',borderCollapse:'collapse',minWidth:920}}>
                 <thead><tr style={{borderBottom:`1px solid ${C.bdr}`,background:C.surf}}>
-                  {['#','Name','Contractor','Trade','Badge','Shift','Start','End','12BP Exp','SWP Exp','NASU Exp','Docs','Status','Action',''].map(h=>(
+                  {['#','Name','Contractor','Trade','Badge','Shift','Start','End','12BP Exp','19AL SWP Exp','19AL FASU Exp','Docs','Status','Action',''].map(h=>(
                     <th key={h} style={{padding:'10px 12px',textAlign:'left',fontSize:9,fontWeight:700,color:C.mute,letterSpacing:'0.8px',textTransform:'uppercase',whiteSpace:'nowrap'}}>{h}</th>
                   ))}
                 </tr></thead>
@@ -758,10 +851,16 @@ const Dashboard=({allP,tarEndStr,setTarEndStr,onApproveTrade,onAccept,onDelete,t
                       <td style={{padding:'10px 12px'}}><Badge status={p.status}/></td>
                     <td style={{padding:'10px 12px',whiteSpace:'nowrap'}}>
                       {needsTradeApproval(p)&&<span style={{fontSize:11,color:'#D97706',fontWeight:600}}>Approve Trade</span>}
-                      {!needsTradeApproval(p)&&p.status==='Pending Acceptance'&&<button onClick={()=>onAccept(p)} style={{padding:'3px 10px',fontSize:11,borderRadius:4,border:'1px solid #059669',background:'#ECFDF5',color:'#059669',cursor:'pointer',fontWeight:600}}>Accept</button>}
+                      {!needsTradeApproval(p)&&(p.mobStatus==='Revision Required')&&<span style={{fontSize:11,color:'#DC2626',fontWeight:600}}>Awaiting Resubmission</span>}
+                      {!needsTradeApproval(p)&&(p.mobStatus==='Revision Submitted'||p.status==='Pending Acceptance'||p.mobStatus==='Resubmitted')&&p.mobStatus!=='Revision Required'&&p.status!=='Accepted'&&(
+                        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                          <button onClick={()=>onAccept(p)} style={{padding:'3px 10px',fontSize:11,borderRadius:4,border:'1px solid #059669',background:'#ECFDF5',color:'#059669',cursor:'pointer',fontWeight:600}}>Accept</button>
+                          <button onClick={()=>setRejectTarget(p)} style={{padding:'3px 10px',fontSize:11,borderRadius:4,border:'1px solid #DC2626',background:'#FEF2F2',color:'#DC2626',cursor:'pointer',fontWeight:600}}>Reject</button>
+                        </div>
+                      )}
                       {!needsTradeApproval(p)&&p.status==='Accepted'&&<span style={{fontSize:11,color:C.ok}}>Accepted</span>}
                     </td>
-                    <td style={{padding:'10px 12px'}}><button onClick={()=>onDelete(p)} style={{padding:'3px 8px',fontSize:10,borderRadius:4,border:'1px solid #EF4444',background:'transparent',color:'#EF4444',cursor:'pointer'}}>Delete</button></td>
+                    <td style={{padding:'10px 12px'}}><button onClick={()=>onDelete(p)} style={{padding:'3px 8px',fontSize:10,borderRadius:4,border:'1px solid #EF4444',background:'transparent',color:'#EF4444',cursor:'pointer'}} title="Permanently remove from sheet">Delete</button></td>
                     </tr>);
                   })}
                 </tbody>
@@ -783,6 +882,7 @@ const Dashboard=({allP,tarEndStr,setTarEndStr,onApproveTrade,onAccept,onDelete,t
           <div style={{padding:'10px 14px',borderRadius:8,background:'#EBF5FF',border:'1px solid #4BA3C7',fontSize:12,color:C.text}}>Currently set to <strong>{new Date(tarEndStr).toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'})}</strong>. Contractors will not be able to submit personnel with any training expiry date before this date.</div>
         </Card>
       )}
+      {rejectTarget&&<RejectModal person={rejectTarget} onCancel={()=>setRejectTarget(null)} onSubmit={async({reasons,note})=>{await onReject(rejectTarget,reasons,note);setRejectTarget(null);}}/>}
     </div>
   );
 };
@@ -795,31 +895,33 @@ export default function App(){
   const [showForm,setShowForm]=useState(false);
   const [editPerson,setEditPerson]=useState(null);
   const [allP,setAllP]=useState([]);
-  const [trades,setTrades]=useState(()=>{try{const custom=JSON.parse(localStorage.getItem('customTrades')||'[]');if(custom.length){const all=[...DEFAULT_TRADES.filter(t=>t!=='Other'),...custom,'Other'];return[...new Set(all)].sort();}return DEFAULT_TRADES;}catch{return DEFAULT_TRADES;}});
-  const [tarEndStr,setTarEndStr]=useState(()=>localStorage.getItem('tarEndDate')||DEFAULT_TAR_END);
+  const [trades,setTrades]=useState(()=>{try{const custom=JSON.parse(localStorage.getItem(LS_KEY_TRADES)||'[]');if(custom.length){const all=[...DEFAULT_TRADES.filter(t=>t!=='Other'),...custom,'Other'];return[...new Set(all)].sort();}return DEFAULT_TRADES;}catch{return DEFAULT_TRADES;}});
+  const [tarEndStr,setTarEndStr]=useState(()=>localStorage.getItem(LS_KEY_TAREND)||DEFAULT_TAR_END);
   const tarEnd=new Date(tarEndStr);
   const [loading]=useState(false);
 
   // Fetch all data from Google Sheet
   // Load from localStorage as primary (Sheet sync is background)
   useEffect(()=>{
-    try{const saved=localStorage.getItem('mobPortalData');if(saved){setAllP(JSON.parse(saved));}}catch{}
+    // Wipe legacy localStorage from previous builds (orphan old keys to prevent stale demo data)
+    try{if(!DEMO_MODE){localStorage.removeItem('mobPortalData');}}catch{}
+    try{const saved=localStorage.getItem(LS_KEY_DATA);if(saved){setAllP(JSON.parse(saved));}}catch{}
     // Also try to fetch from Sheet
     if(SHEET_API){
       fetch(SHEET_API).then(r=>r.json()).then(j=>{
-        if(j.rows&&j.rows.length>0){
+        if(j.rows&&Array.isArray(j.rows)){
           const mapped=j.rows.map((row,i)=>({
             id:i+1,no:row['No'],con:row['Contractor'],fn:row['First Name'],ln:row['Last Name'],
             trade:row['Trade']||'',badge:row['Badge Number']||'',mobile:row['Mobile']||'',
             start:cleanDate(row['Start Date']),end:cleanDate(row['Finish Date']),
-            bp:cleanDate(row['12 Basic Plus Expiry']),swp:cleanDate(row['19A AIL SWP Expiry']),nasu:cleanDate(row['19A AIL NASU Expiry']),
+            bp:cleanDate(row['12 Basic Plus Expiry']),swp:cleanDate(row['19AL SWP Expiry']||row['19A AIL SWP Expiry']),nasu:cleanDate(row['19AL FASU Expiry']||row['19ALFASU Expiry']||row['19A AIL NASU Expiry']),
             bpDoc:row['Training Docs']==='Yes',swpDoc:row['Training Docs']==='Yes',nasuDoc:row['Training Docs']==='Yes',
             ct:row['Competency Type']||'',comp:row['Competency Detail']||'',
             photoID:row['Photo ID']==='Yes',training:row['Training Docs']==='Yes',
-            hse:row['HSE Form']==='Yes',compDoc:row['Competency Doc']==='Yes'||row['Competency Docs']==='Yes',mobStatus:row['Mobilization Status']||'',accepted:row['Mobilization Status']==='Accepted',
+            hse:row['HSE Form']==='Yes',compDoc:row['Competency Doc']==='Yes'||row['Competency Docs']==='Yes',mobStatus:row['Mobilization Status']||'',accepted:row['Mobilization Status']==='Accepted',rejectionReasons:(()=>{try{const v=row['Rejection Reasons'];if(!v)return [];return typeof v==='string'?(v.startsWith('[')?JSON.parse(v):v.split('|').map(x=>x.trim()).filter(Boolean)):v;}catch{return [];}})(),rejectionNote:row['Rejection Note']||'',rejectedAt:row['Rejected At']||'',revisionHistory:row['Revision History']||'',
           }));
           setAllP(mapped);
-          try{localStorage.setItem('mobPortalData',JSON.stringify(mapped));}catch{}
+          try{localStorage.setItem(LS_KEY_DATA,JSON.stringify(mapped));}catch{}
         }
       }).catch(()=>{});
     }
@@ -827,19 +929,19 @@ export default function App(){
   const fetchData=useCallback(()=>{
     if(!SHEET_API)return;
     fetch(SHEET_API).then(r=>r.json()).then(j=>{
-      if(j.rows&&j.rows.length>0){
+      if(j.rows&&Array.isArray(j.rows)){
         const mapped=j.rows.map((row,i)=>({
           id:i+1,no:row['No'],con:row['Contractor'],fn:row['First Name'],ln:row['Last Name'],
           trade:row['Trade']||'',tradeOther:row['Trade (Custom)']||'',mobile:row['Mobile']||'',badge:row['Badge Number'],shift:row['Shift'],
           start:cleanDate(row['Start Date']),end:cleanDate(row['Finish Date']),
-          bp:cleanDate(row['12 Basic Plus Expiry']),swp:cleanDate(row['19A AIL SWP Expiry']),nasu:cleanDate(row['19A AIL NASU Expiry']),
+          bp:cleanDate(row['12 Basic Plus Expiry']),swp:cleanDate(row['19AL SWP Expiry']||row['19A AIL SWP Expiry']),nasu:cleanDate(row['19AL FASU Expiry']||row['19ALFASU Expiry']||row['19A AIL NASU Expiry']),
           bpDoc:row['Training Docs']==='Yes',swpDoc:row['Training Docs']==='Yes',nasuDoc:row['Training Docs']==='Yes',
           ct:row['Competency Type']||'',comp:row['Competency Detail']||'',
           photoID:row['Photo ID']==='Yes',training:row['Training Docs']==='Yes',
-          hse:row['HSE Form']==='Yes',compDoc:row['Competency Doc']==='Yes'||row['Competency Docs']==='Yes',mobStatus:row['Mobilization Status']||'',accepted:row['Mobilization Status']==='Accepted',
+          hse:row['HSE Form']==='Yes',compDoc:row['Competency Doc']==='Yes'||row['Competency Docs']==='Yes',mobStatus:row['Mobilization Status']||'',accepted:row['Mobilization Status']==='Accepted',rejectionReasons:(()=>{try{const v=row['Rejection Reasons'];if(!v)return [];return typeof v==='string'?(v.startsWith('[')?JSON.parse(v):v.split('|').map(x=>x.trim()).filter(Boolean)):v;}catch{return [];}})(),rejectionNote:row['Rejection Note']||'',rejectedAt:row['Rejected At']||'',revisionHistory:row['Revision History']||'',
         }));
         setAllP(mapped);
-        try{localStorage.setItem('mobPortalData',JSON.stringify(mapped));}catch{}
+        try{localStorage.setItem(LS_KEY_DATA,JSON.stringify(mapped));}catch{}
       }
     }).catch(()=>{});
   },[]);
@@ -899,7 +1001,7 @@ export default function App(){
       }else{
         next=[...p,{...record,id:Date.now()}];
       }
-      try{localStorage.setItem('mobPortalData',JSON.stringify(next));}catch{}
+      try{localStorage.setItem(LS_KEY_DATA,JSON.stringify(next));}catch{}
       return next;
     });
     if(!SHEET_API)return;
@@ -908,6 +1010,44 @@ export default function App(){
       await fetch(SHEET_API+'?action=submit&data='+data);
       setTimeout(()=>fetchData(),2000);
     }catch(e){console.error('Submit error:',e);}
+  };
+  // Reject / Request Revision: update the record's status + persist reasons + send email via Apps Script
+  const rejectSubmission=async(person,reasons,note)=>{
+    const now=new Date().toISOString();
+    let history=[];
+    try{if(person.revisionHistory){history=typeof person.revisionHistory==='string'?JSON.parse(person.revisionHistory):(person.revisionHistory||[]);}}catch{history=[];}
+    history=[...history,{action:'Rejected',date:now,reasons,note}];
+    const rec={
+      ...person,
+      con:person.con||person.contractor,
+      mobStatus:'Revision Required',
+      accepted:false,
+      rejectionReasons:reasons,
+      rejectionNote:note,
+      rejectedAt:now,
+      revisionHistory:JSON.stringify(history),
+    };
+    // Optimistic local update
+    setAllP(prev=>{
+      const next=prev.map(x=>(String(x.fn).trim()===String(person.fn).trim()&&String(x.ln).trim()===String(person.ln).trim()&&String(x.con||x.contractor).trim()===String(person.con||person.contractor).trim())?{...x,...rec}:x);
+      try{localStorage.setItem(LS_KEY_DATA,JSON.stringify(next));}catch{}
+      return next;
+    });
+    if(!SHEET_API){alert('Revision request recorded locally (demo mode — no email sent).');return;}
+    try{
+      // Use a dedicated reject action so Apps Script can fire the email; falls back to submit if Apps Script doesn't recognise it
+      const data=encodeURIComponent(JSON.stringify(rec));
+      const resp=await fetch(SHEET_API+'?action=reject&data='+data);
+      let r=null;try{r=await resp.json();}catch{}
+      if(!r||!r.success){
+        // Apps Script doesn't know action=reject yet — fall back to submit so the row is at least updated in the sheet
+        await fetch(SHEET_API+'?action=submit&data='+data);
+        alert('Revision status saved to sheet. Note: email notification requires the Apps Script update (see deploy notes).');
+      }else{
+        alert('Revision request sent. The submitter has been notified by email.');
+      }
+      setTimeout(()=>fetchData(),2000);
+    }catch(e){console.error('Reject error:',e);alert('Saved locally but failed to sync to sheet: '+e.message);}
   };
   const goHome=()=>{setScreen('landing');setContractor('');setShowForm(false);};
   const [formStep,setFormStep]=useState(1);
@@ -921,16 +1061,23 @@ export default function App(){
     if(screen==='login'){setScreen('landing');return;}
     setScreen('landing');
   };
+  const resetDemo=()=>{if(!DEMO_MODE)return;if(!confirm('Reset all DEMO data? Live data is unaffected.'))return;try{localStorage.removeItem(LS_KEY_DATA);localStorage.removeItem(LS_KEY_TRADES);localStorage.removeItem(LS_KEY_TAREND);}catch{}setAllP([]);setTrades(DEFAULT_TRADES);setTarEndStr(DEFAULT_TAR_END);alert('Demo data reset.');};
   return (
     <div style={{background:C.bg,minHeight:'100vh',color:C.text,fontFamily:"'Inter',-apple-system,'Segoe UI',system-ui,sans-serif"}}>
+      {DEMO_MODE&&<>
+        <div style={{position:'fixed',top:0,left:0,right:0,background:'#F59E0B',color:'#1A2B4A',textAlign:'center',padding:'6px 12px',fontSize:12,fontWeight:800,letterSpacing:'2px',zIndex:10000}}>⚠ DEMO ENVIRONMENT — TRAINING USE ONLY — DATA NOT SAVED TO LIVE SHEET ⚠</div>
+        <button onClick={resetDemo} style={{position:'fixed',bottom:18,left:18,background:'#DC2626',color:'#fff',border:'none',borderRadius:8,padding:'10px 16px',fontSize:12,fontWeight:700,cursor:'pointer',boxShadow:'0 4px 12px rgba(0,0,0,.2)',zIndex:9999}}>↺ Reset Demo Data</button>
+      </>}
+      <div style={{paddingTop:DEMO_MODE?28:0}}>
       <Header screen={screen} contractor={screen==='contractor'?contractor:null} onBack={goBack} onHome={goHome}/>
       {screen==='landing'&&<Landing goContractor={()=>{setLoginTab('contractor');setScreen('login');}} goMgmt={()=>{setLoginTab('mgmt');setScreen('login');}}/>}
       {screen==='login'&&<Login defaultTab={loginTab} onContractorLogin={con=>{setContractor(con);setScreen('contractor');setShowForm(false);fetchData();}} onMgmtLogin={()=>{setScreen('dashboard');fetchData();}}/>}
       {loading&&<div style={{textAlign:'center',padding:'40px',color:C.mute,fontSize:14}}>Loading data...</div>}
-      {!loading&&screen==='contractor'&&!showForm&&<RosterView contractor={contractor} allP={allP} trades={trades} onAdd={()=>setShowForm(true)} onEdit={p=>{setEditPerson(p);setShowForm(true);}} onBulkAdd={rec=>submitToSheet({...rec,con:contractor})} onDelete={async(p)=>{const data=encodeURIComponent(JSON.stringify({con:p.con||p.contractor||contractor,fn:p.fn,ln:p.ln}));setAllP(prev=>{const next=prev.filter(x=>!(x.fn===p.fn&&x.ln===p.ln&&(x.con||x.contractor)===(p.con||p.contractor||contractor)));try{localStorage.setItem('mobPortalData',JSON.stringify(next));}catch{}return next;});const resp=await fetch(SHEET_API+'?action=delete&data='+data);try{const r=await resp.json();if(!r.success)alert('Delete failed: '+(r.error||'Unknown error'));}catch{}setTimeout(fetchData,3000);}}/>}
-      {!loading&&screen==='contractor'&&showForm&&<Form contractor={contractor} tarEnd={tarEnd} formStep={formStep} setFormStep={setFormStep} trades={trades} editData={editPerson} uploadFile={uploadFile} onSubmit={rec=>{submitToSheet({...rec,con:contractor});setEditPerson(null);}} onRoster={()=>{setShowForm(false);setEditPerson(null);}}/>}
-      {!loading&&screen==='dashboard'&&<Dashboard allP={allP} trades={trades} onAccept={async(person)=>{const rec={...person,mobStatus:'Accepted',accepted:true,con:person.con||person.contractor};const data=encodeURIComponent(JSON.stringify(rec));await fetch(SHEET_API+'?action=submit&data='+data);fetchData();}} onDelete={async(person)=>{if(!confirm('Delete '+person.fn+' '+person.ln+' ('+( person.con||person.contractor)+')? This will remove them from the mobilization sheet.'))return;const data=encodeURIComponent(JSON.stringify({con:person.con||person.contractor,fn:person.fn,ln:person.ln}));setAllP(p=>{const next=p.filter(x=>!(x.fn===person.fn&&x.ln===person.ln&&(x.con||x.contractor)===(person.con||person.contractor)));try{localStorage.setItem('mobPortalData',JSON.stringify(next));}catch{}return next;});const resp=await fetch(SHEET_API+'?action=delete&data='+data);try{const r=await resp.json();if(!r.success)alert('Delete failed: '+(r.error||'Unknown error'));}catch{}setTimeout(fetchData,3000);}} onApproveTrade={async(person,newTrade,type)=>{const rec={...person,trade:newTrade,tradeOther:'',tradeApproval:'Approved',con:person.con||person.contractor};const data=encodeURIComponent(JSON.stringify(rec));await fetch(SHEET_API+'?action=submit&data='+data);if(type==='custom'&&!trades.includes(newTrade)){setTrades(prev=>[...prev.filter(t=>t!=='Other'),newTrade,'Other'].sort());try{localStorage.setItem('customTrades',JSON.stringify([...new Set([...(JSON.parse(localStorage.getItem('customTrades')||'[]')),newTrade])]));}catch{}}fetchData();}} tarEndStr={tarEndStr} setTarEndStr={v=>{setTarEndStr(v);localStorage.setItem('tarEndDate',v);}}/>}
-      <div style={{position:'fixed',bottom:10,right:20,fontSize:10,color:'#B0B8C4',letterSpacing:'0.5px',zIndex:999}}>v2.38</div>
+      {!loading&&screen==='contractor'&&!showForm&&<RosterView contractor={contractor} allP={allP} trades={trades} onAdd={()=>setShowForm(true)} onEdit={p=>{setEditPerson(p);setShowForm(true);}} onBulkAdd={rec=>submitToSheet({...rec,con:contractor})} onDelete={async(p)=>{const data=encodeURIComponent(JSON.stringify({con:p.con||p.contractor||contractor,fn:p.fn,ln:p.ln}));setAllP(prev=>{const next=prev.filter(x=>!(x.fn===p.fn&&x.ln===p.ln&&(x.con||x.contractor)===(p.con||p.contractor||contractor)));try{localStorage.setItem(LS_KEY_DATA,JSON.stringify(next));}catch{}return next;});const resp=await fetch(SHEET_API+'?action=delete&data='+data);try{const r=await resp.json();if(!r.success)alert('Delete failed: '+(r.error||'Unknown error'));}catch{}setTimeout(fetchData,3000);}}/>}
+      {!loading&&screen==='contractor'&&showForm&&<Form contractor={contractor} tarEnd={tarEnd} tarEndStr={tarEndStr} formStep={formStep} setFormStep={setFormStep} trades={trades} editData={editPerson} uploadFile={uploadFile} onSubmit={rec=>{submitToSheet({...rec,con:contractor});setEditPerson(null);}} onRoster={()=>{setShowForm(false);setEditPerson(null);}}/>}
+      {!loading&&screen==='dashboard'&&<Dashboard allP={allP} trades={trades} onReject={(person,reasons,note)=>rejectSubmission(person,reasons,note)} onAccept={async(person)=>{const rec={...person,mobStatus:'Accepted',accepted:true,con:person.con||person.contractor};const data=encodeURIComponent(JSON.stringify(rec));await fetch(SHEET_API+'?action=submit&data='+data);fetchData();}} onDelete={async(person)=>{if(!confirm('Delete '+person.fn+' '+person.ln+' ('+( person.con||person.contractor)+')? This will remove them from the mobilization sheet.'))return;const data=encodeURIComponent(JSON.stringify({con:person.con||person.contractor,fn:person.fn,ln:person.ln}));setAllP(p=>{const next=p.filter(x=>!(x.fn===person.fn&&x.ln===person.ln&&(x.con||x.contractor)===(person.con||person.contractor)));try{localStorage.setItem(LS_KEY_DATA,JSON.stringify(next));}catch{}return next;});const resp=await fetch(SHEET_API+'?action=delete&data='+data);try{const r=await resp.json();if(!r.success)alert('Delete failed: '+(r.error||'Unknown error'));}catch{}setTimeout(fetchData,3000);}} onApproveTrade={async(person,newTrade,type)=>{const rec={...person,trade:newTrade,tradeOther:'',tradeApproval:'Approved',con:person.con||person.contractor};const data=encodeURIComponent(JSON.stringify(rec));await fetch(SHEET_API+'?action=submit&data='+data);if(type==='custom'&&!trades.includes(newTrade)){setTrades(prev=>[...prev.filter(t=>t!=='Other'),newTrade,'Other'].sort());try{localStorage.setItem(LS_KEY_TRADES,JSON.stringify([...new Set([...(JSON.parse(localStorage.getItem(LS_KEY_TRADES)||'[]')),newTrade])]));}catch{}}fetchData();}} tarEndStr={tarEndStr} setTarEndStr={v=>{setTarEndStr(v);localStorage.setItem(LS_KEY_TAREND,v);}}/>}
+      <div style={{position:'fixed',bottom:10,right:20,fontSize:10,color:'#B0B8C4',letterSpacing:'0.5px',zIndex:999}}>{DEMO_MODE?'v2.40 DEMO':'v2.40'}</div>
+      </div>
     </div>
   );
 }

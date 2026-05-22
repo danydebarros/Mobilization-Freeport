@@ -113,35 +113,47 @@ const Btn=({children,v='primary',onClick,disabled,full,sm})=>{
   return <button onClick={onClick} disabled={disabled} style={{padding:sm?'7px 14px':'11px 22px',borderRadius:6,fontWeight:700,fontSize:sm?12:13,cursor:disabled?'not-allowed':'pointer',border:vv[v].bd,background:vv[v].bg,color:vv[v].tx,opacity:disabled?.5:1,width:full?'100%':'auto',whiteSpace:'nowrap',letterSpacing:'0.3px'}}>{children}</button>;
 };
 const Badge=({status})=>{const sc=SC[status]||SC['Ready'];return <span style={{display:'inline-flex',alignItems:'center',gap:5,padding:'3px 9px',borderRadius:20,background:sc.bg,color:sc.tx,border:`1px solid ${sc.bd}`,fontSize:11,fontWeight:700,whiteSpace:'nowrap'}}><span style={{width:5,height:5,borderRadius:'50%',background:sc.tx,display:'inline-block'}}/>{status}</span>;};
-const UploadBox=({label,done,onToggle,onFile})=>{
+const UploadBox=({label,done,onUpload,onClear})=>{
   const fileRef=React.useRef(null);
-  const handleClick=()=>{
-    if(!done&&fileRef.current)fileRef.current.click();
+  const [state,setState]=React.useState('idle'); // idle | uploading | error
+  const uploading=state==='uploading', error=state==='error';
+  const pick=()=>{
+    if(!uploading&&!done&&fileRef.current)fileRef.current.click();
   };
   const handleChange=(e)=>{
     const file=e.target.files[0];
-    if(!file)return;
-    if(onFile){
-      const reader=new FileReader();
-      reader.onload=()=>{
-        const b64=reader.result.split(',')[1];
-        onFile({fileName:file.name,mimeType:file.type,fileData:b64,size:file.size});
-      };
-      reader.readAsDataURL(file);
-    }
-    onToggle(file.name);
     e.target.value='';
+    if(!file)return;
+    const reader=new FileReader();
+    reader.onload=async()=>{
+      const b64=reader.result.split(',')[1];
+      const info={fileName:file.name,mimeType:file.type,fileData:b64,size:file.size};
+      setState('uploading');
+      try{
+        const success=onUpload?await onUpload(info):false;
+        setState(success?'idle':'error'); // on success, parent flips `done` to true
+      }catch{setState('error');}
+    };
+    reader.onerror=()=>setState('error');
+    reader.readAsDataURL(file);
   };
-  return (<div style={{border:`1px solid ${done?C.ok:C.bdr}`,borderRadius:8,overflow:'hidden',background:done?'#ECFDF5':C.surf,transition:'all .2s'}}>
-    <div onClick={handleClick} style={{padding:'16px',display:'flex',alignItems:'center',gap:14,cursor:done?'default':'pointer'}}>
-      <div style={{width:36,height:36,borderRadius:8,background:done?'#D1FAE5':'#F0F4F8',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d={done?"M3 8l3.5 3.5L13 5":"M8 2v8M4 6l4-4 4 4M2 12h12"} stroke={done?"#059669":"#718096"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+  const bd=done?C.ok:error?C.err:C.bdr;
+  const bg=done?'#ECFDF5':error?'#FEF2F2':C.surf;
+  const title=done?label+' — Uploaded':uploading?'Uploading '+label+'…':error?label+' — Upload failed':'Upload '+label;
+  const sub=done?'File saved to Drive':uploading?'Saving to Drive — please keep this page open':error?'Not saved. Tap Retry — do not continue until it succeeds.':'PDF, JPG, or PNG — click to select file';
+  return (<div style={{border:`1px solid ${bd}`,borderRadius:8,overflow:'hidden',background:bg,transition:'all .2s'}}>
+    <div onClick={pick} style={{padding:'16px',display:'flex',alignItems:'center',gap:14,cursor:(done||uploading)?'default':'pointer'}}>
+      <div style={{width:36,height:36,borderRadius:8,background:done?'#D1FAE5':error?'#FEE2E2':'#F0F4F8',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+        {uploading
+          ?<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" stroke="#718096" strokeWidth="2" fill="none" strokeDasharray="22 10" strokeLinecap="round"><animateTransform attributeName="transform" type="rotate" from="0 8 8" to="360 8 8" dur="0.8s" repeatCount="indefinite"/></circle></svg>
+          :<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d={done?"M3 8l3.5 3.5L13 5":error?"M8 1v9M8 12.5v.5":"M8 2v8M4 6l4-4 4 4M2 12h12"} stroke={done?"#059669":error?"#DC2626":"#718096"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
       </div>
       <div style={{flex:1}}>
-        <div style={{fontSize:13,fontWeight:600,color:done?C.ok:C.text}}>{done?label+' — Uploaded':'Upload '+label}</div>
-        <div style={{fontSize:11,color:C.mute,marginTop:2}}>{done?'File attached successfully':'PDF, JPG, or PNG — click to select file'}</div>
+        <div style={{fontSize:13,fontWeight:600,color:done?C.ok:error?C.err:C.text}}>{title}</div>
+        <div style={{fontSize:11,color:C.mute,marginTop:2}}>{sub}</div>
       </div>
-      {done&&<div onClick={(e)=>{e.stopPropagation();onToggle(false);}} style={{padding:'4px 10px',borderRadius:4,background:'#FEF2F2',color:'#DC2626',fontSize:11,fontWeight:600,cursor:'pointer'}}>Remove</div>}
+      {done&&<div onClick={(e)=>{e.stopPropagation();setState('idle');if(onClear)onClear();}} style={{padding:'4px 10px',borderRadius:4,background:'#FEF2F2',color:'#DC2626',fontSize:11,fontWeight:600,cursor:'pointer'}}>Remove</div>}
+      {error&&<div onClick={(e)=>{e.stopPropagation();pick();}} style={{padding:'4px 10px',borderRadius:4,background:'#EFF6FF',color:'#2563EB',fontSize:11,fontWeight:600,cursor:'pointer'}}>Retry</div>}
     </div>
     <input ref={fileRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" style={{display:'none'}} onChange={handleChange}/>
   </div>);
@@ -301,11 +313,14 @@ const Form=({contractor,tarEnd,tarEndStr,onSubmit,onRoster,editData,uploadFile,t
   const updateStep=(v)=>{const newStep=typeof v==='function'?v(step):v;setStep(newStep);if(setExternalStep)setExternalStep(newStep);};
   // Scroll to top whenever the user advances/regresses to a different step
   useEffect(()=>{try{window.scrollTo({top:0,left:0,behavior:'auto'});if(document.documentElement)document.documentElement.scrollTop=0;if(document.body)document.body.scrollTop=0;}catch{}},[step]);
-  const doUpload=(fieldKey,fileInfo)=>{
-    s(fieldKey,true);
-    if(uploadFile&&fileInfo&&fileInfo.fileData){
-      uploadFile(fileInfo,contractor,f.fn,f.ln);
-    }
+  // Awaits the real Drive upload. Only flips the doc flag to true on confirmed
+  // success — so "Uploaded" can no longer be shown for a file that never saved.
+  const doUpload=async(fieldKey,fileInfo)=>{
+    if(DEMO_MODE){s(fieldKey,true);return true;}
+    if(!uploadFile||!fileInfo||!fileInfo.fileData)return false;
+    const res=await uploadFile(fileInfo,contractor,f.fn,f.ln);
+    if(res&&(res.fileUrl||res.fileId)){s(fieldKey,true);return true;}
+    return false;
   };
   const [f,setF]=useState(editData||EMPTY);
   const [done,setDone]=useState(false);
@@ -400,7 +415,7 @@ const Form=({contractor,tarEnd,tarEndStr,onSubmit,onRoster,editData,uploadFile,t
               <Fld label="Finish Date" req><Inp type="date" val={f.end} set={v=>s('end',v)}/></Fld>
             </div>
             <Fld label="Photo ID Upload" req hint="Government-issued photo ID (driver's licence, passport, etc.)">
-              <UploadBox label="Photo ID" done={f.photoID} onToggle={(name)=>s('photoID',!!name)} onFile={(fi)=>doUpload('photoID',fi)}/>
+              <UploadBox label="Photo ID" done={f.photoID} onUpload={(fi)=>doUpload('photoID',fi)} onClear={()=>s('photoID',false)}/>
             </Fld>
           </>
         )}
@@ -418,7 +433,7 @@ const Form=({contractor,tarEnd,tarEndStr,onSubmit,onRoster,editData,uploadFile,t
                     {f[dk]&&f[dk]<tarEndStr&&<div style={{color:'#DC2626',fontSize:11,fontWeight:600,marginTop:4}}>Expiry date must be on or after {tarEnd.toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'})}</div>}
                   </Fld>
                   {f[dk]&&<div style={{marginTop:4}}>
-                    <UploadBox label={label+' certificate'} done={f[ck]} onToggle={(name)=>s(ck,!!name)} onFile={(fi)=>doUpload(ck,fi)}/>
+                    <UploadBox label={label+' certificate'} done={f[ck]} onUpload={(fi)=>doUpload(ck,fi)} onClear={()=>s(ck,false)}/>
                   </div>}
                 </div>
               ))}
@@ -444,7 +459,7 @@ const Form=({contractor,tarEnd,tarEndStr,onSubmit,onRoster,editData,uploadFile,t
               <Inp val={f.comp} set={v=>s('comp',v)} ph={f.ct==='Experience'?'e.g. 10 years scaffolding experience':'e.g. TDLR Instrument Tech, Journeyman Pipefitter'}/>
             </Fld>}
             {f.ct==='Qualification'&&<Fld label="Competency Document" req hint="Upload trade certificate, TDLR card, or relevant qualification">
-              <UploadBox label="Competency Document" done={f.compDoc} onToggle={(name)=>s('compDoc',!!name)} onFile={(fi)=>doUpload('compDoc',fi)}/>
+              <UploadBox label="Competency Document" done={f.compDoc} onUpload={(fi)=>doUpload('compDoc',fi)} onClear={()=>s('compDoc',false)}/>
             </Fld>}
             {f.ct==='Experience'&&<div style={{padding:'10px 14px',borderRadius:8,background:C.surf,border:`1px solid ${C.bdr}`,fontSize:12,color:C.dim}}>ℹ No document upload required for experience-based competency — the description above is sufficient.</div>}
           </>
@@ -460,7 +475,7 @@ const Form=({contractor,tarEnd,tarEndStr,onSubmit,onRoster,editData,uploadFile,t
                   <span style={{fontSize:13,color:C.text}}>{label}</span>
                 </div>
                 {f[k]&&<div style={{padding:'8px 14px 12px 46px',borderTop:`1px solid ${C.bdr}`}}>
-                  <UploadBox label={label+' qualification'} done={f[dk]} onToggle={(name)=>s(dk,!!name)} onFile={(fi)=>doUpload(dk,fi)}/>
+                  <UploadBox label={label+' qualification'} done={f[dk]} onUpload={(fi)=>doUpload(dk,fi)} onClear={()=>s(dk,false)}/>
                 </div>}
               </div>
             ))}
@@ -489,7 +504,7 @@ const Form=({contractor,tarEnd,tarEndStr,onSubmit,onRoster,editData,uploadFile,t
               ))}
             </div>
             <Fld label="Completed & Signed HSE Orientation Form" req hint="Upload signed 2-ALL-HSS-0125-F — mandatory for site access">
-              <UploadBox label="Air Liquide HSE Orientation Form" done={f.hse} onToggle={(name)=>s('hse',!!name)} onFile={(fi)=>doUpload('hse',fi)}/>
+              <UploadBox label="Air Liquide HSE Orientation Form" done={f.hse} onUpload={(fi)=>doUpload('hse',fi)} onClear={()=>s('hse',false)}/>
             </Fld>
             <Divline label="Submission Preview"/>
             <div style={{background:C.surf,borderRadius:10,padding:16,fontSize:12}}>
@@ -978,12 +993,12 @@ export default function App(){
       document.body.appendChild(form);
       form.submit();
       document.body.removeChild(form);
-      // Timeout after 30 seconds
+      // Timeout after 60 seconds (resolves null -> caller shows "failed, retry")
       setTimeout(()=>{
         window.removeEventListener('message',handler);
         try{document.body.removeChild(iframe);}catch{}
         resolve(null);
-      },30000);
+      },60000);
     });
   };
 

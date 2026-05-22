@@ -313,15 +313,15 @@ const Form=({contractor,tarEnd,tarEndStr,onSubmit,onRoster,editData,uploadFile,t
   const updateStep=(v)=>{const newStep=typeof v==='function'?v(step):v;setStep(newStep);if(setExternalStep)setExternalStep(newStep);};
   // Scroll to top whenever the user advances/regresses to a different step
   useEffect(()=>{try{window.scrollTo({top:0,left:0,behavior:'auto'});if(document.documentElement)document.documentElement.scrollTop=0;if(document.body)document.body.scrollTop=0;}catch{}},[step]);
-  // Optimistic: mark the doc uploaded immediately so contractors are never
-  // blocked, and fire the real Drive upload in the background (server saves
-  // reliably). Trade-off: a rare failed background save won't surface here.
-  const doUpload=(fieldKey,fileInfo)=>{
-    s(fieldKey,true);
-    if(!DEMO_MODE&&uploadFile&&fileInfo&&fileInfo.fileData){
-      uploadFile(fileInfo,contractor,f.fn,f.ln);
-    }
-    return true;
+  // Wait for a confirmed Drive save before marking the doc uploaded (uses the
+  // reliable fetch upload). On failure the UploadBox shows "Upload failed / Retry"
+  // so nothing is silently lost.
+  const doUpload=async(fieldKey,fileInfo)=>{
+    if(DEMO_MODE){s(fieldKey,true);return true;}
+    if(!uploadFile||!fileInfo||!fileInfo.fileData)return false;
+    const res=await uploadFile(fileInfo,contractor,f.fn,f.ln);
+    if(res&&(res.fileUrl||res.fileId)){s(fieldKey,true);return true;}
+    return false;
   };
   const [f,setF]=useState(editData||EMPTY);
   const [done,setDone]=useState(false);
@@ -962,45 +962,22 @@ export default function App(){
     }).catch(()=>{});
   },[]);
 
-  // Submit to Google Sheet
-  const uploadFile=(fileInfo,con,fn,ln)=>{
-    if(!UPLOAD_API||!fileInfo||!fileInfo.fileData)return Promise.resolve(null);
-    return new Promise((resolve)=>{
-      // Create iframe for cross-origin upload
-      const frameId='_uf_'+Date.now();
-      const iframe=document.createElement('iframe');
-      iframe.id=frameId;iframe.name=frameId;
-      iframe.style.cssText='display:none;width:0;height:0;';
-      document.body.appendChild(iframe);
-      // Listen for postMessage response from the iframe
-      const handler=(ev)=>{
-        try{
-          const result=JSON.parse(ev.data);
-          if(result.success||result.error){
-            window.removeEventListener('message',handler);
-            setTimeout(()=>document.body.removeChild(iframe),1000);
-            resolve(result.success?result.file:null);
-          }
-        }catch{}
-      };
-      window.addEventListener('message',handler);
-      // Create and submit form
-      const form=document.createElement('form');
-      form.method='POST';form.action=UPLOAD_API;form.target=frameId;
-      const input=document.createElement('input');
-      input.type='hidden';input.name='data';
-      input.value=JSON.stringify({contractor:con,fn,ln,fileName:fileInfo.fileName,mimeType:fileInfo.mimeType,fileData:fileInfo.fileData});
-      form.appendChild(input);
-      document.body.appendChild(form);
-      form.submit();
-      document.body.removeChild(form);
-      // Timeout after 60 seconds (resolves null -> caller shows "failed, retry")
-      setTimeout(()=>{
-        window.removeEventListener('message',handler);
-        try{document.body.removeChild(iframe);}catch{}
-        resolve(null);
-      },60000);
-    });
+  // Reliable upload: POST to the Apps Script and read the JSON result so we get
+  // a real success/failure (replaces the flaky iframe + postMessage). Requires
+  // the upload Apps Script doPost to return JSON when fmt=json. URLSearchParams
+  // sends application/x-www-form-urlencoded (a "simple" request -> no CORS
+  // preflight), and Apps Script ContentService responses are readable cross-origin.
+  const uploadFile=async(fileInfo,con,fn,ln)=>{
+    if(!UPLOAD_API||!fileInfo||!fileInfo.fileData)return null;
+    try{
+      const body=new URLSearchParams();
+      body.set('fmt','json');
+      body.set('data',JSON.stringify({contractor:con,fn,ln,fileName:fileInfo.fileName,mimeType:fileInfo.mimeType,fileData:fileInfo.fileData}));
+      const res=await fetch(UPLOAD_API,{method:'POST',body});
+      if(!res.ok)return null;
+      const json=await res.json();
+      return (json&&json.success&&json.file)?json.file:null;
+    }catch(e){return null;}
   };
 
   const submitToSheet=async(record)=>{

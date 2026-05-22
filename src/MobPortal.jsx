@@ -326,7 +326,7 @@ const Form=({contractor,tarEnd,tarEndStr,onSubmit,onRoster,editData,uploadFile,t
   const [done,setDone]=useState(false);
   const s=(k,v)=>setF(p=>({...p,[k]:v}));
   const ok=[
-    ()=>f.fn&&f.ln&&(f.trade&&f.trade!=='Other'||f.tradeOther)&&f.start&&f.end&&f.photoID,
+    ()=>f.fn&&f.ln&&(f.trade&&f.trade!=='Other'||f.tradeOther)&&f.start&&f.end&&f.photoID&&/^\S+@\S+\.\S+$/.test(f.email||''),
     ()=>f.bp&&f.swp&&f.nasu&&f.bpDoc&&f.swpDoc&&f.nasuDoc&&f.bp>=tarEndStr&&f.swp>=tarEndStr&&f.nasu>=tarEndStr,
     ()=>f.ct&&f.comp&&(f.ct!=='Qualification'||f.compDoc),
     ()=>true,
@@ -398,7 +398,7 @@ const Form=({contractor,tarEnd,tarEndStr,onSubmit,onRoster,editData,uploadFile,t
             <Fld label="Cell Phone Number" req hint="Employee mobile/cell number for site communication">
               <Inp val={f.mobile} set={v=>s('mobile',v)} ph="+1 (555) 123-4567" type="tel"/>
             </Fld>
-            <Fld label="Email Address" hint="Email of the person completing this form">
+            <Fld label="Email Address" req hint="Required — used to send revision / resubmission notices to the submitter">
               <Inp val={f.email} set={v=>s('email',v)} ph="name@company.com" type="email"/>
             </Fld>
             <Fld label="Trade / Role" req hint="Select your trade from the list. If your trade is not listed, select 'Other' at the bottom and describe it below.">
@@ -933,7 +933,7 @@ export default function App(){
             bpDoc:row['Training Docs']==='Yes',swpDoc:row['Training Docs']==='Yes',nasuDoc:row['Training Docs']==='Yes',
             ct:row['Competency Type']||'',comp:row['Competency Detail']||'',
             photoID:row['Photo ID']==='Yes',training:row['Training Docs']==='Yes',
-            hse:row['HSE Form']==='Yes',compDoc:row['Competency Doc']==='Yes'||row['Competency Docs']==='Yes',mobStatus:row['Mobilization Status']||'',accepted:row['Mobilization Status']==='Accepted',rejectionReasons:(()=>{try{const v=row['Rejection Reasons'];if(!v)return [];return typeof v==='string'?(v.startsWith('[')?JSON.parse(v):v.split('|').map(x=>x.trim()).filter(Boolean)):v;}catch{return [];}})(),rejectionNote:row['Rejection Note']||'',rejectedAt:row['Rejected At']||'',revisionHistory:row['Revision History']||'',
+            hse:row['HSE Form']==='Yes',compDoc:row['Competency Doc']==='Yes'||row['Competency Docs']==='Yes',mobStatus:row['Mobilization Status']||'',accepted:row['Mobilization Status']==='Accepted',rejectionReasons:(()=>{try{const v=row['Rejection Reasons'];if(!v)return [];return typeof v==='string'?(v.startsWith('[')?JSON.parse(v):v.split('|').map(x=>x.trim()).filter(Boolean)):v;}catch{return [];}})(),email:(()=>{const sb=String(row['Submitted By']||'');const m=sb.match(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/);return m?m[0]:'';})(),rejectionNote:row['Rejection Note']||'',rejectedAt:row['Rejected At']||'',revisionHistory:row['Revision History']||'',
           }));
           setAllP(mapped);
           try{localStorage.setItem(LS_KEY_DATA,JSON.stringify(mapped));}catch{}
@@ -953,7 +953,7 @@ export default function App(){
           bpDoc:row['Training Docs']==='Yes',swpDoc:row['Training Docs']==='Yes',nasuDoc:row['Training Docs']==='Yes',
           ct:row['Competency Type']||'',comp:row['Competency Detail']||'',
           photoID:row['Photo ID']==='Yes',training:row['Training Docs']==='Yes',
-          hse:row['HSE Form']==='Yes',compDoc:row['Competency Doc']==='Yes'||row['Competency Docs']==='Yes',mobStatus:row['Mobilization Status']||'',accepted:row['Mobilization Status']==='Accepted',rejectionReasons:(()=>{try{const v=row['Rejection Reasons'];if(!v)return [];return typeof v==='string'?(v.startsWith('[')?JSON.parse(v):v.split('|').map(x=>x.trim()).filter(Boolean)):v;}catch{return [];}})(),rejectionNote:row['Rejection Note']||'',rejectedAt:row['Rejected At']||'',revisionHistory:row['Revision History']||'',
+          hse:row['HSE Form']==='Yes',compDoc:row['Competency Doc']==='Yes'||row['Competency Docs']==='Yes',mobStatus:row['Mobilization Status']||'',accepted:row['Mobilization Status']==='Accepted',rejectionReasons:(()=>{try{const v=row['Rejection Reasons'];if(!v)return [];return typeof v==='string'?(v.startsWith('[')?JSON.parse(v):v.split('|').map(x=>x.trim()).filter(Boolean)):v;}catch{return [];}})(),email:(()=>{const sb=String(row['Submitted By']||'');const m=sb.match(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/);return m?m[0]:'';})(),rejectionNote:row['Rejection Note']||'',rejectedAt:row['Rejected At']||'',revisionHistory:row['Revision History']||'',
         }));
         setAllP(mapped);
         try{localStorage.setItem(LS_KEY_DATA,JSON.stringify(mapped));}catch{}

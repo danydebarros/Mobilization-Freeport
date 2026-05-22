@@ -313,20 +313,21 @@ const Form=({contractor,tarEnd,tarEndStr,onSubmit,onRoster,editData,uploadFile,t
   const updateStep=(v)=>{const newStep=typeof v==='function'?v(step):v;setStep(newStep);if(setExternalStep)setExternalStep(newStep);};
   // Scroll to top whenever the user advances/regresses to a different step
   useEffect(()=>{try{window.scrollTo({top:0,left:0,behavior:'auto'});if(document.documentElement)document.documentElement.scrollTop=0;if(document.body)document.body.scrollTop=0;}catch{}},[step]);
-  // Awaits the real Drive upload. Only flips the doc flag to true on confirmed
-  // success — so "Uploaded" can no longer be shown for a file that never saved.
-  const doUpload=async(fieldKey,fileInfo)=>{
-    if(DEMO_MODE){s(fieldKey,true);return true;}
-    if(!uploadFile||!fileInfo||!fileInfo.fileData)return false;
-    const res=await uploadFile(fileInfo,contractor,f.fn,f.ln);
-    if(res&&(res.fileUrl||res.fileId)){s(fieldKey,true);return true;}
-    return false;
+  // Optimistic: mark the doc uploaded immediately so contractors are never
+  // blocked, and fire the real Drive upload in the background (server saves
+  // reliably). Trade-off: a rare failed background save won't surface here.
+  const doUpload=(fieldKey,fileInfo)=>{
+    s(fieldKey,true);
+    if(!DEMO_MODE&&uploadFile&&fileInfo&&fileInfo.fileData){
+      uploadFile(fileInfo,contractor,f.fn,f.ln);
+    }
+    return true;
   };
   const [f,setF]=useState(editData||EMPTY);
   const [done,setDone]=useState(false);
   const s=(k,v)=>setF(p=>({...p,[k]:v}));
   const ok=[
-    ()=>f.fn&&f.ln&&(f.trade&&f.trade!=='Other'||f.tradeOther)&&f.start&&f.end&&f.photoID&&/^\S+@\S+\.\S+$/.test(f.email||''),
+    ()=>f.fn&&f.ln&&(f.trade&&f.trade!=='Other'||f.tradeOther)&&f.start&&f.end&&f.photoID,
     ()=>f.bp&&f.swp&&f.nasu&&f.bpDoc&&f.swpDoc&&f.nasuDoc&&f.bp>=tarEndStr&&f.swp>=tarEndStr&&f.nasu>=tarEndStr,
     ()=>f.ct&&f.comp&&(f.ct!=='Qualification'||f.compDoc),
     ()=>true,
@@ -398,7 +399,7 @@ const Form=({contractor,tarEnd,tarEndStr,onSubmit,onRoster,editData,uploadFile,t
             <Fld label="Cell Phone Number" req hint="Employee mobile/cell number for site communication">
               <Inp val={f.mobile} set={v=>s('mobile',v)} ph="+1 (555) 123-4567" type="tel"/>
             </Fld>
-            <Fld label="Email Address" req hint="Required — used to send revision / resubmission notices to the submitter">
+            <Fld label="Email Address" hint="Recommended — used to send revision / resubmission notices to the submitter">
               <Inp val={f.email} set={v=>s('email',v)} ph="name@company.com" type="email"/>
             </Fld>
             <Fld label="Trade / Role" req hint="Select your trade from the list. If your trade is not listed, select 'Other' at the bottom and describe it below.">

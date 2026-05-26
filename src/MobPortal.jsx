@@ -750,7 +750,11 @@ const Dashboard=({allP,tarEndStr,setTarEndStr,onApproveTrade,onAccept,onReject,o
   }),[enriched,search,filterCon,filterSt]);
   const byCon=useMemo(()=>{
     const m={};
-    enriched.forEach(p=>{const c=p.con||p.contractor||'Unknown';if(!m[c])m[c]={total:0,ready:0,issues:0};m[c].total++;if(p.status==='Ready')m[c].ready++;else m[c].issues++;});
+    // "Issues" = real problems needing action; everything else (Accepted, Pending
+    // Acceptance, Revision Submitted) counts as Ready/good. personStatus never
+    // returns the literal 'Ready', so the previous check bucketed everyone as Issues.
+    const ISSUE=new Set(['Missing Docs','Revision Required','Expired Training','Expiring Soon']);
+    enriched.forEach(p=>{const c=p.con||p.contractor||'Unknown';if(!m[c])m[c]={total:0,ready:0,issues:0};m[c].total++;if(ISSUE.has(p.status))m[c].issues++;else m[c].ready++;});
     return Object.entries(m).sort((a,b)=>b[1].total-a[1].total);
   },[enriched]);
   const sc=useMemo(()=>{const m={'Accepted':0,'Pending Acceptance':0,'Ready':0,'Expiring Soon':0,'Expired Training':0,'Missing Docs':0};enriched.forEach(p=>{if(m[p.status]!==undefined)m[p.status]++;});return m;},[enriched]);

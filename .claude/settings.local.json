@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -n \"const Form=\\({contractor,tarEnd,\\\\|<Form contractor=\" src/MobPortal.jsx)",
+      "Bash(grep -n \"^  return\\\\|^};$\\\\|^\\);$\" src/MobPortal.jsx)",
+      "Bash(npm run *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(curl -sL \"https://danydebarros.github.io/Mobilization-Freeport/\" -o /tmp/portal.html)",
+      "Read(//tmp/**)",
+      "Bash(time curl *)",
+      "Bash(git commit *)"
+    ]
+  }
+}
